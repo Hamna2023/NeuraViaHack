@@ -1,72 +1,31 @@
-# app/main.py
-from fastapi import FastAPI, UploadFile, File
-from pydantic import BaseModel
-from typing import List, Dict, Optional
-import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from routers import chat, hearing, symptoms
 
-app = FastAPI(title="Neura Hearing API")
+app = FastAPI(title="NeuraVia API", version="1.0.0")
 
-class Intake(BaseModel):
-    user_id: Optional[str]
-    age: Optional[int]
-    primary_concern: Optional[str]
-    onset: Optional[str]
-    symptoms: Dict[str, bool]
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-class ChatTurn(BaseModel):
-    user_id: Optional[str]
-    message: str
-    history: List[Dict] = []   # [{role, message}]
-    intake: Optional[Dict] = None
-    hearing_test: Optional[Dict] = None
+# Include routers
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(hearing.router, prefix="/api/hearing", tags=["hearing"])
+app.include_router(symptoms.router, prefix="/api/symptoms", tags=["symptoms"])
 
-class HearingResult(BaseModel):
-    user_id: Optional[str]
-    thresholds: Dict[str, int]   # dB threshold per freq
-    notes: Optional[str] = ""
+@app.get("/")
+async def root():
+    return {"message": "Welcome to NeuraVia API!"}
 
-@app.post("/intake")
-def save_intake(payload: Intake):
-    # TODO: insert into Supabase
-    return {"ok": True, "intake_id": "..."}
-
-@app.post("/chat")
-def chat(payload: ChatTurn):
-    """
-    1) Score risk from structured symptoms
-    2) Ask follow-ups (LLM)
-    3) Return assistant message + updated priority
-    """
-    # TODO: simple rule-based risk + LLM call
-    return {
-        "assistant": "Thanks for sharing. Do you experience ringing (tinnitus) or sudden hearing loss?",
-        "priority": "medium",
-        "risk_flags": ["possible_noise_induced"],
-    }
-
-@app.post("/hearing-test")
-def hearing_test(payload: HearingResult):
-    # TODO: insert thresholds, compute risk
-    priority = "low"
-    if payload.thresholds.get("4000", 0) >= 35 or payload.thresholds.get("8000", 0) >= 35:
-        priority = "medium"
-    return {"ok": True, "priority": priority}
-
-@app.post("/stt")
-async def stt(audio: UploadFile = File(...)):
-    # Accept wav/webm chunk; run STT (Whisper/API); return text
-    text = "transcribed text here"
-    return {"text": text}
-
-@app.get("/report/{user_id}")
-def get_report(user_id: str):
-    # Aggregate latest intake + chat + hearing test → summary
-    return {
-        "priority": "medium",
-        "risk_flags": ["high_freq_loss"],
-        "summary": "Student reports difficulty hearing in noisy classrooms, worse on right ear...",
-        "recommendations": "Audiology referral; preferential seating; real-time captions."
-    }
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run(app)
