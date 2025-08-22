@@ -1,68 +1,59 @@
+# backend/app/routers/hearing.py
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional, List
 import datetime
-from database import db
+from app.database import db
 
 router = APIRouter()
 
 class HearingTest(BaseModel):
     id: Optional[str] = None
     user_id: str
-    test_date: Optional[datetime.datetime] = None
-    left_ear_db: float
-    right_ear_db: float
-    frequency_hz: float
-    notes: Optional[str] = None
+    frequency: int          # in Hz
+    threshold_db: float     # hearing threshold in dB
+    ear: str                # "left" or "right"
+    timestamp: Optional[datetime.datetime] = None
 
-class HearingAssessment(BaseModel):
+class HearingSummary(BaseModel):
     user_id: str
-    overall_score: float
+    avg_threshold: float
+    worst_frequency: int
     recommendation: str
-    test_date: datetime.datetime
 
-@router.post("/test", response_model=HearingTest)
-async def create_hearing_test(test: HearingTest):
-    test.test_date = datetime.datetime.now()
-    
-    # Try to save to database first
+@router.post("/add", response_model=HearingTest)
+async def add_hearing_test(test: HearingTest):
+    test.timestamp = datetime.datetime.now()
     test_data = test.dict()
-    saved_test = await db.add_hearing_test(test_data)
-    
-    if saved_test:
-        return HearingTest(**saved_test)
+    saved = await db.add_hearing_test(test_data)
+    if saved:
+        return HearingTest(**saved)
     else:
-        # Fallback to mock data if database fails
-        test.id = f"test_{datetime.datetime.now().timestamp()}"
+        test.id = f"hearing_{datetime.datetime.now().timestamp()}"
         return test
 
-@router.get("/tests/{user_id}", response_model=List[HearingTest])
-async def get_user_tests(user_id: str):
-    tests_data = await db.get_user_hearing_tests(user_id)
-    return [HearingTest(**test) for test in tests_data]
+@router.get("/user/{user_id}", response_model=List[HearingTest])
+async def get_user_hearing_tests(user_id: str):
+    tests = await db.get_user_hearing_tests(user_id)
+    return [HearingTest(**t) for t in tests]
 
-@router.get("/assessment/{user_id}", response_model=HearingAssessment)
-async def get_hearing_assessment(user_id: str):
-    user_tests = await db.get_user_hearing_tests(user_id)
-    
-    if not user_tests:
-        raise HTTPException(status_code=404, detail="No tests found for user")
-    
-    # Simple assessment logic
-    avg_left = sum(test['left_ear_db'] for test in user_tests) / len(user_tests)
-    avg_right = sum(test['right_ear_db'] for test in user_tests) / len(user_tests)
-    overall_score = (avg_left + avg_right) / 2
-    
-    if overall_score < 25:
-        recommendation = "Normal hearing"
-    elif overall_score < 40:
-        recommendation = "Mild hearing loss - monitor closely"
-    else:
-        recommendation = "Moderate hearing loss - consult specialist"
-    
-    return HearingAssessment(
+@router.get("/report/{user_id}", response_model=HearingSummary)
+async def get_hearing_report(user_id: str):
+    tests = await db.get_user_hearing_tests(user_id)
+    if not tests:
+        raise HTTPException(status_code=404, detail="No hearing tests found")
+
+    avg_threshold = sum(t['threshold_db'] for t in tests) / len(tests)
+    worst = max(tests, key=lambda x: x['threshold_db'])  # higher threshold = worse hearing
+    recommendation = (
+        "Hearing is normal." if avg_threshold < 25
+        else "Mild hearing loss detected. Consider seeing an audiologist."
+        if avg_threshold < 40
+        else "Significant hearing loss detected. Medical consultation strongly advised."
+    )
+    return HearingSummary(
         user_id=user_id,
-        overall_score=overall_score,
-        recommendation=recommendation,
-        test_date=datetime.datetime.now()
+        avg_threshold=round(avg_threshold, 2),
+        worst_frequency=worst['frequency'],
+        recommendation=recommendation
     )

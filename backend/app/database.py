@@ -1,7 +1,7 @@
 from supabase import create_client, Client
 from postgrest import APIError
 from typing import Optional, List, Dict, Any
-from config import settings
+from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,34 +60,23 @@ class SupabaseDB:
             logger.error(f"Error getting chat history: {e}")
             return []
     
-    # Hearing Operations
-    async def add_hearing_test(self, test_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Add a new hearing test"""
-        if not self.is_connected():
-            return None
-        
+        # Hearing Operations
+    async def add_hearing_test(self, test_data: dict):
         try:
-            response = self.client.table('hearing_tests').insert(test_data).execute()
-            return response.data[0] if response.data else None
-        except APIError as e:
+            res = self.client.table("hearing_tests").insert(test_data).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
             logger.error(f"Error adding hearing test: {e}")
             return None
-    
-    async def get_user_hearing_tests(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get hearing tests for a user"""
-        if not self.is_connected():
-            return []
-        
+
+    async def get_user_hearing_tests(self, user_id: str):
         try:
-            response = self.client.table('hearing_tests')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .order('test_date', desc=True)\
-                .execute()
-            return response.data or []
-        except APIError as e:
-            logger.error(f"Error getting hearing tests: {e}")
+            res = self.client.table("hearing_tests").select("*").eq("user_id", user_id).execute()
+            return res.data if res.data else []
+        except Exception as e:
+            logger.error(f"Error fetching hearing tests: {e}")
             return []
+
     
     # Symptoms Operations
     async def add_symptom(self, symptom_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:

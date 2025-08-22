@@ -1,78 +1,15 @@
-"use client"; // if you’re in /app/page.tsx, keep this at the top
-
-import { useState } from "react";
+import Link from "next/link";
 
 export default function Home() {
-  const [formData, setFormData] = useState({
-    name: "",
-    age: "",
-    symptoms: "",
-  });
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    try {
-      const res = await fetch("http://127.0.0.1:8000/submit-form", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await res.json();
-      alert(`Submitted! Server says: ${JSON.stringify(data)}`);
-    } catch (error) {
-      console.error(error);
-      alert("Something went wrong");
-    }
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-8 rounded-2xl shadow-md space-y-4 w-full max-w-md"
-      >
-        <h1 className="text-xl font-bold">Health Intake Form</h1>
-
-        <input
-          type="text"
-          name="name"
-          placeholder="Name"
-          value={formData.name}
-          onChange={handleChange}
-          className="w-full p-2 border rounded"
-        />
-
-        <input
-          type="number"
-          name="age"
-          placeholder="Age"
-          value={formData.age}
-          onChange={handleChange}
-          className="w-full p-2 border rounded"
-        />
-
-        <textarea
-          name="symptoms"
-          placeholder="Describe your symptoms..."
-          value={formData.symptoms}
-          onChange={handleChange}
-          className="w-full p-2 border rounded"
-        />
-
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700"
-        >
-          Submit
-        </button>
-      </form>
+    <div className="flex flex-col items-center justify-center h-[80vh] space-y-6">
+      <h1 className="text-4xl font-bold">Welcome to NeuraVia</h1>
+      <p className="text-gray-600">Choose a feature to get started:</p>
+      <div className="space-x-4">
+        <Link href="/symptoms" className="px-4 py-2 bg-blue-500 text-white rounded-lg">Symptoms</Link>
+        <Link href="/hearing" className="px-4 py-2 bg-green-500 text-white rounded-lg">Hearing</Link>
+        <Link href="/chat" className="px-4 py-2 bg-purple-500 text-white rounded-lg">Chat</Link>
+      </div>
     </div>
   );
 }

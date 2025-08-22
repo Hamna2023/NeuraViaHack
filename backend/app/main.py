@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import chat, hearing, symptoms
+from app.routers import chat, hearing, symptoms
 
 app = FastAPI(title="NeuraVia API", version="1.0.0")
 
