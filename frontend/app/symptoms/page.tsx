@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Trash2 } from "lucide-react"; 
+import Link from "next/link";
 
 type Symptom = {
   name: string;
@@ -141,6 +142,14 @@ export default function SymptomForm() {
         >
           Submit All Symptoms
         </button>
+        <div className="mt-6 flex justify-end">
+        <Link
+          href="/hearing"
+          className="bg-green-600 text-white px-6 py-2 rounded-lg"
+        >
+          Continue →
+        </Link>
+      </div>
       </form>
     </div>
   );
