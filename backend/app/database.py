@@ -58,6 +58,8 @@ class SupabaseDB:
             
             if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
                 logger.warning("Supabase credentials not found. Using mock mode.")
+                logger.warning(f"SUPABASE_URL present: {bool(settings.SUPABASE_URL)}")
+                logger.warning(f"SUPABASE_SERVICE_KEY present: {bool(settings.SUPABASE_SERVICE_KEY)}")
                 return
             
             self.client = create_client(
@@ -65,6 +67,15 @@ class SupabaseDB:
                 settings.SUPABASE_SERVICE_KEY
             )
             logger.info("Successfully connected to Supabase")
+            
+            # Test the connection
+            try:
+                test_response = self.client.table('user_profiles').select('count').limit(1).execute()
+                logger.info(f"Database connection test successful: {test_response}")
+            except Exception as test_error:
+                logger.error(f"Database connection test failed: {test_error}")
+                self.client = None
+                
         except Exception as e:
             logger.error(f"Failed to connect to Supabase: {e}")
             self.client = None
@@ -599,6 +610,11 @@ class SupabaseDB:
                 "updated_at": datetime.now().isoformat()
             }
             
+            # Ensure all values are JSON serializable
+            for key, value in update_data.items():
+                if isinstance(value, datetime):
+                    update_data[key] = value.isoformat()
+            
             response = self.client.table('chat_sessions')\
                 .update(update_data)\
                 .eq('id', session_id)\
@@ -611,6 +627,27 @@ class SupabaseDB:
         except APIError as e:
             logger.error(f"Error updating session progress: {e}")
             return False
+
+    async def get_chat_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get chat session by ID"""
+        if not self.is_connected():
+            return None
+        
+        try:
+            response = self.client.table('chat_sessions')\
+                .select('*')\
+                .eq('id', session_id)\
+                .execute()
+            
+            if response.data and len(response.data) > 0:
+                session_data = response.data[0]
+                # Convert any datetime string fields to proper datetime objects
+                converted_session = _convert_datetime_fields(session_data)
+                return converted_session
+            return None
+        except APIError as e:
+            logger.error(f"Error getting chat session: {e}")
+            return None
 
     async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         """Get user profile by email"""

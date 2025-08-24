@@ -5,6 +5,7 @@ from langchain.memory import ConversationBufferMemory
 from typing import List, Dict, Any, Optional
 import logging
 import json
+from datetime import datetime
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -18,415 +19,581 @@ class AIService:
         else:
             self.enabled = True
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Initialize LangChain models
             self.langchain_model = ChatGoogleGenerativeAI(
                 model="gemini-1.5-flash",
                 google_api_key=self.api_key,
                 temperature=0.7,
                 max_output_tokens=2048
             )
+            
+            # Initialize conversation memory
+            self.conversation_memories = {}
     
-    def generate_structured_response(self, message: str, conversation_history: List[Dict[str, Any]] = None, assessment_stage: str = "initial", user_context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate structured AI response for medical assessment with user context"""
+    def get_conversation_memory(self, session_id: str) -> ConversationBufferMemory:
+        """Get or create conversation memory for a session"""
+        if session_id not in self.conversation_memories:
+            self.conversation_memories[session_id] = ConversationBufferMemory(
+                memory_key="chat_history",
+                return_messages=True,
+                max_token_limit=4000,  # Increased for better context
+                input_key="input",
+                output_key="output"
+            )
+        return self.conversation_memories[session_id]
+    
+    def get_conversation_context(self, session_id: str) -> str:
+        """Get formatted conversation context for AI prompts"""
+        if session_id not in self.conversation_memories:
+            return "No conversation history available."
+        
+        memory = self.conversation_memories[session_id]
+        messages = memory.chat_memory.messages
+        
+        if not messages:
+            return "No conversation history available."
+        
+        # Format last 8 messages for context (increased from 6)
+        context_messages = messages[-8:] if len(messages) > 8 else messages
+        
+        formatted_context = []
+        for msg in context_messages:
+            if hasattr(msg, 'content'):
+                role = "Patient" if hasattr(msg, 'type') and msg.type == 'human' else "Medical Attendant"
+                formatted_context.append(f"{role}: {msg.content}")
+        
+        return "\n".join(formatted_context)
+    
+    async def generate_initial_greeting(self, user_context: Dict[str, Any], session_id: str) -> str:
+        """Generate personalized initial greeting based on user context"""
         if not self.enabled:
-            return {
-                "message": "AI service is currently unavailable. Please check your configuration.",
-                "assessment_complete": False,
-                "next_questions": [],
-                "collected_data": {},
-                "assessment_stage": assessment_stage,
-                "completion_score": 0
-            }
+            return "Welcome to your medical assessment. How can I help you today?"
         
         try:
-            # Analyze conversation to determine next steps and completion
-            conversation_analysis = self._analyze_conversation_progress(message, conversation_history or [], assessment_stage, user_context)
+            # Create personalized greeting prompt
+            context_info = self._format_user_context_for_greeting(user_context)
             
-            # Create medical assessment context with user information
-            context = self._create_medical_assessment_context(conversation_analysis["current_stage"], user_context)
-            
-            # Format conversation history
-            formatted_history = self._format_conversation_history(conversation_history or [])
-            
-            # Create the structured prompt with enhanced logic
             prompt = f"""
-            {context}
+            You are a professional, empathetic medical attendant for NeuraVia conducting neurological assessments.
             
-            {formatted_history}
+            PATIENT CONTEXT:
+            {context_info}
             
-            Current Assessment Stage: {conversation_analysis["current_stage"]}
-            User Message: {message}
-            Current Completion Score: {conversation_analysis["completion_score"]}%
+            TASK: Generate a warm, personalized greeting that:
+            1. Welcomes the patient by name if available
+            2. Acknowledges their existing symptoms and medical context
+            3. Explains the purpose of this assessment
+            4. Makes them feel comfortable and heard
+            5. Sets expectations for the conversation
+            6. Asks their first question to begin the assessment
             
-            Your role is to act as a professional medical attendant for NeuraVia, conducting structured neurological assessments.
+            The greeting should be natural, empathetic, and reference specific details from their context.
+            Keep it conversational and not too formal.
             
-            CRITICAL ASSESSMENT COMPLETION CRITERIA:
-            - Assessment is ONLY complete when ALL required information is collected:
-              * Primary symptoms with severity, duration, and triggers
-              * Medical history (conditions, medications, family history)
-              * Risk factors (lifestyle, occupational, environmental)
-              * Hearing concerns and auditory symptoms
-              * Impact on daily life and quality of life
-              * Current medications and treatments
-              * Previous neurological evaluations
-              * Family neurological history
+            IMPORTANT REQUIREMENTS:
+            - Do NOT wrap your response in quotes or use quotation marks
+            - Write as if you're speaking directly to the patient
+            - Use natural language with proper line breaks for readability
+            - Make it feel like a real conversation starter
             
-            - Minimum conversation length: 15-20 meaningful exchanges
-            - All key assessment areas must have sufficient detail
-            - User must provide comprehensive responses to critical questions
-            
-            IMPORTANT GUIDELINES:
-            - Always be professional, empathetic, and supportive
-            - Ask ONE focused question at a time to avoid overwhelming the patient
-            - Build upon previous responses - don't repeat questions already answered
-            - Focus on neurological symptoms, hearing concerns, and relevant medical history
-            - NEVER provide medical diagnosis - only collect information
-            - Use the user's context (age, gender, existing symptoms) to personalize questions
-            - If the user provides incomplete information, ask follow-up questions for clarity
-            - Keep the conversation natural and conversational, not robotic
-            - Acknowledge and validate the patient's concerns before asking new questions
-            
-            ASSESSMENT FLOW - ADAPTIVE QUESTIONING:
-            1. Initial Assessment: Get main symptoms and concerns
-            2. Symptom Collection: Deep dive into ONE symptom at a time
-            3. Medical History: Relevant medical background, medications, family history
-            4. Risk Factors: Lifestyle, environmental factors, occupational hazards
-            5. Hearing Assessment: Specific questions about auditory health
-            6. Impact Assessment: How symptoms affect daily life and work
-            7. Final Review: Summarize and ask any missing information
-            
-            COMPLETION EVALUATION:
-            - Evaluate if you have enough information for a comprehensive medical report
-            - Consider the depth and quality of responses, not just quantity
-            - Ensure all critical areas have been adequately covered
-            - Only mark complete when you can generate a detailed, actionable report
-            
-            Please respond with a JSON structure containing:
-            {{
-                "message": "Your response message to the patient (be conversational, ask ONE focused question, acknowledge their previous response)",
-                "assessment_complete": boolean (true ONLY when sufficient information collected for comprehensive report),
-                "completion_score": number (0-100, percentage of assessment completion),
-                "next_questions": ["list", "of", "follow-up", "questions"],
-                "collected_data": {{
-                    "symptoms": ["list", "of", "identified", "symptoms"],
-                    "severity_levels": {{"symptom": "severity"}},
-                    "duration": "duration information",
-                    "location": "symptom locations",
-                    "triggers": ["symptom", "triggers"],
-                    "medical_history": ["relevant", "medical", "history"],
-                    "medications": ["current", "medications"],
-                    "family_history": ["family", "medical", "history"],
-                    "risk_factors": ["identified", "risk", "factors"],
-                    "lifestyle_factors": ["lifestyle", "factors"],
-                    "hearing_concerns": ["hearing", "related", "symptoms"],
-                    "impact_assessment": "impact on daily life",
-                    "recommendations": ["immediate", "recommendations"]
-                }},
-                "assessment_stage": "next stage of assessment",
-                "conversation_quality": "assessment of conversation relevance and completeness",
-                "missing_areas": ["list", "of", "areas", "still", "needing", "information"]
-            }}
-            
-            IMPORTANT: Return ONLY the JSON structure without any markdown formatting, code blocks, or additional text.
-            The response must be valid JSON that can be parsed directly.
-            
-            Focus on collecting comprehensive information for a detailed patient report.
-            Only mark assessment_complete as true when you have gathered sufficient information across all key areas.
+            Return your greeting in a natural, conversational manner.
             """
             
-            # Generate response
-            response = self.model.generate_content(prompt)
-            
-            # Try to parse JSON response
-            try:
-                # Handle markdown-formatted JSON responses
-                response_text = response.text.strip()
-                
-                # Check if response is wrapped in markdown code blocks
-                if response_text.startswith('```json') and response_text.endswith('```'):
-                    # Extract JSON content from markdown code blocks
-                    json_content = response_text[7:-3].strip()  # Remove ```json and ```
-                    structured_response = json.loads(json_content)
-                elif response_text.startswith('```') and response_text.endswith('```'):
-                    # Extract content from generic code blocks
-                    json_content = response_text[3:-3].strip()  # Remove ``` and ```
-                    structured_response = json.loads(json_content)
-                else:
-                    # Try to parse as regular JSON
-                    structured_response = json.loads(response_text)
-                
-                # Validate and enhance the response
-                structured_response = self._validate_and_enhance_response(structured_response, conversation_analysis)
-                return structured_response
-            except json.JSONDecodeError as e:
-                # Fallback to structured format if JSON parsing fails
-                logger.warning(f"JSON parsing failed for AI response: {response.text}")
-                logger.warning(f"JSON parsing error: {e}")
-                return self._create_fallback_response(response.text, conversation_analysis["current_stage"])
+            response = await self.langchain_model.ainvoke(prompt)
+            return response.content.strip()
             
         except Exception as e:
+            logger.error(f"Error generating initial greeting: {e}")
+            return "Welcome to your medical assessment! I'm here to help understand your health concerns. How can I assist you today?"
+    
+    def _format_user_context_for_greeting(self, user_context: Dict[str, Any]) -> str:
+        """Format user context for the greeting prompt"""
+        if not user_context:
+            return "No previous information available."
+        
+        context_parts = []
+        
+        if user_context.get("name"):
+            context_parts.append(f"Name: {user_context['name']}")
+        if user_context.get("age"):
+            context_parts.append(f"Age: {user_context['age']} years")
+        if user_context.get("gender"):
+            context_parts.append(f"Gender: {user_context['gender']}")
+        if user_context.get("existing_symptoms"):
+            symptoms = ", ".join(user_context["existing_symptoms"])
+            context_parts.append(f"Previously reported symptoms: {symptoms}")
+        if user_context.get("hearing_status") and user_context["hearing_status"] != "Not tested":
+            context_parts.append(f"Hearing status: {user_context['hearing_status']}")
+        if user_context.get("previous_assessments"):
+            context_parts.append(f"Previous assessments: {user_context['previous_assessments']} completed")
+        
+        return "\n".join(context_parts) if context_parts else "No previous information available."
+    
+    async def generate_structured_response(self, message: str, conversation_history: List[Dict[str, Any]] = None, assessment_stage: str = "initial", user_context: Dict[str, Any] = None, session_id: str = None) -> Dict[str, Any]:
+        """Generate AI response using LangChain conversation model"""
+        if not self.enabled:
+            return self._create_fallback_response("AI service unavailable", assessment_stage)
+        
+        try:
+            # Get conversation memory for this session
+            memory = self.get_conversation_memory(session_id or "default")
+            
+            # Update memory with new user message
+            memory.chat_memory.add_user_message(message)
+            
+            # Analyze conversation progress using AI
+            progress_analysis = await self._analyze_conversation_progress_ai(message, conversation_history, assessment_stage, user_context)
+            
+            # Create intelligent assessment prompt
+            assessment_prompt = self._create_assessment_prompt(message, progress_analysis, user_context, memory)
+            
+            # Generate AI response
+            ai_response = await self.langchain_model.ainvoke(assessment_prompt)
+            
+            # Create structured response
+            structured_response = self._create_structured_response_from_ai(ai_response.content, progress_analysis)
+            
+            # Update memory with AI response
+            memory.chat_memory.add_ai_message(structured_response["message"])
+            
+            return structured_response
+                
+        except Exception as e:
             logger.error(f"Error generating structured AI response: {e}")
+            return self._create_fallback_response("I'm having trouble processing your request. Please try again.", assessment_stage)
+    
+    async def _analyze_conversation_progress_ai(self, current_message: str, history: List[Dict[str, Any]], current_stage: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Use AI to analyze conversation progress with looser completion criteria"""
+        if not self.enabled:
+            return {"current_stage": current_stage, "completion_score": 0, "missing_areas": []}
+        
+        try:
+            # Create analysis prompt with looser completion criteria
+            analysis_prompt = f"""
+            Analyze this medical assessment conversation to determine progress and next steps.
+            
+            CONVERSATION HISTORY:
+            {self._format_history_for_analysis(history)}
+            
+            CURRENT MESSAGE: {current_message}
+            CURRENT STAGE: {current_stage}
+            
+            TASK: Analyze the conversation and provide:
+            1. Current assessment stage
+            2. Completion percentage (0-100)
+            3. Areas that still need information
+            4. Whether the assessment is complete enough for a meaningful report
+            5. Next recommended questions
+            
+            ASSESSMENT COMPLETION CRITERIA (LOOSER):
+            - Symptoms: Good understanding of main symptoms, severity, duration (80% complete is sufficient)
+            - Medical History: Basic medical background, current medications (70% complete is sufficient)
+            - Family History: Any relevant family conditions (60% complete is sufficient)
+            - Risk Factors: Major lifestyle and environmental factors (70% complete is sufficient)
+            - Hearing: Any auditory symptoms or concerns (if applicable)
+            - Impact: Understanding of how symptoms affect daily life (75% complete is sufficient)
+            - Treatments: Current treatments and their effectiveness (70% complete is sufficient)
+            
+            COMPLETION RULES:
+            - Assessment is "complete enough" when completion_score >= 75%
+            - Don't require 100% completion of every single area
+            - Focus on quality and depth of information rather than quantity
+            - Consider natural conversation flow and patient engagement
+            - Allow completion when sufficient information exists for a comprehensive report
+            
+            STAGES:
+            - "initial": Just starting, basic information
+            - "gathering": Collecting detailed information
+            - "ready_for_summary": 75-85% complete, ready to transition to report
+            - "complete": 85%+ complete, assessment finished
+            
+            Consider:
+            - Quality and depth of information collected
+            - Coverage of major medical areas
+            - Natural conversation flow and patient engagement
+            - Whether sufficient information exists for a meaningful report
+            - Patient's understanding and comfort level
+            
+            Return your analysis in a clear, structured format.
+            """
+            
+            response = await self.langchain_model.ainvoke(analysis_prompt)
+            
+            # Parse the analysis (simplified parsing for now)
+            analysis_text = response.content.lower()
+            
+            # Extract completion score with more granular analysis
+            completion_score = self._calculate_completion_score(analysis_text, history, user_context)
+            
+            # Determine if complete based on looser criteria
+            assessment_complete = self._determine_assessment_completion_looser(completion_score, analysis_text, history)
+            
+            # Determine stage based on completion and content
+            stage = self._determine_assessment_stage_improved(completion_score, analysis_text, history)
+            
             return {
-                "message": "I apologize, but I'm having trouble processing your request right now. Please try again later.",
+                "current_stage": stage,
+                "completion_score": completion_score,
+                "assessment_complete": assessment_complete,
+                "missing_areas": self._identify_missing_areas_ai(analysis_text),
+                "conversation_quality": "excellent" if completion_score > 80 else "good" if completion_score > 50 else "developing",
+                "next_questions": self._suggest_next_questions(completion_score, analysis_text)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in AI conversation analysis: {e}")
+            return {
+                "current_stage": current_stage,
+                "completion_score": 0,
                 "assessment_complete": False,
-                "completion_score": 0,
-                "next_questions": ["Please describe your main symptoms", "How long have you been experiencing these symptoms?"],
-                "collected_data": {},
-                "assessment_stage": assessment_stage,
-                "missing_areas": ["symptoms", "medical_history", "risk_factors"]
+                "missing_areas": ["symptoms", "medical_history", "risk_factors"],
+                "conversation_quality": "developing",
+                "next_questions": ["Please describe your main symptoms", "How long have you been experiencing these symptoms?"]
             }
     
-    def _analyze_conversation_progress(self, current_message: str, history: List[Dict[str, Any]], current_stage: str, user_context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Analyze conversation to determine progress and next stage with enhanced logic"""
+    def _format_history_for_analysis(self, history: List[Dict[str, Any]]) -> str:
+        """Format conversation history for AI analysis"""
         if not history:
-            return {
-                "current_stage": "initial", 
-                "progress": 0, 
-                "completion_score": 0,
-                "missing_areas": ["symptoms", "medical_history", "risk_factors", "hearing_assessment", "impact_assessment"]
-            }
+            return "No conversation history available."
         
-        # Count messages and analyze content
-        message_count = len(history)
-        user_messages = [msg for msg in history if not msg.get("is_doctor")]
+        formatted = []
+        for msg in history[-12:]:  # Last 12 messages for better context
+            role = "Patient" if not msg.get("is_doctor") else "Medical Attendant"
+            formatted.append(f"{role}: {msg.get('message', '')}")
         
-        # Analyze what information has been collected
-        collected_info = self._extract_collected_information(history)
-        
-        # Calculate completion score based on information depth and quality
-        completion_score = self._calculate_completion_score(collected_info, message_count, user_context)
-        
-        # Determine progress and next stage based on completion score
-        if completion_score < 25:
-            return {
-                "current_stage": "initial", 
-                "progress": completion_score, 
-                "completion_score": completion_score,
-                "missing_areas": ["symptoms", "medical_history", "risk_factors", "hearing_assessment", "impact_assessment"]
-            }
-        elif completion_score < 50:
-            return {
-                "current_stage": "symptom_collection", 
-                "progress": completion_score, 
-                "completion_score": completion_score,
-                "missing_areas": ["medical_history", "risk_factors", "hearing_assessment", "impact_assessment"]
-            }
-        elif completion_score < 75:
-            return {
-                "current_stage": "medical_history", 
-                "progress": completion_score, 
-                "completion_score": completion_score,
-                "missing_areas": ["risk_factors", "hearing_assessment", "impact_assessment"]
-            }
-        elif completion_score < 90:
-            return {
-                "current_stage": "risk_assessment", 
-                "progress": completion_score, 
-                "completion_score": completion_score,
-                "missing_areas": ["hearing_assessment", "impact_assessment", "final_review"]
-            }
-        else:
-            return {
-                "current_stage": "final_review", 
-                "progress": completion_score, 
-                "completion_score": completion_score,
-                "missing_areas": ["final_clarification"]
-            }
+        return "\n".join(formatted)
     
-    def _calculate_completion_score(self, collected_info: Dict[str, Any], message_count: int, user_context: Dict[str, Any] = None) -> int:
-        """Calculate assessment completion score based on information quality and quantity"""
-        base_score = min(message_count * 3, 30)  # Base score from conversation length
+    def _identify_missing_areas_ai(self, analysis_text: str) -> List[str]:
+        """Use AI analysis to identify missing areas"""
+        missing = []
         
-        # Score for collected information quality
-        info_score = 0
+        if "symptom" not in analysis_text or "symptom" in analysis_text and "incomplete" in analysis_text:
+            missing.append("symptoms")
+        if "medical history" not in analysis_text or "medical history" in analysis_text and "incomplete" in analysis_text:
+            missing.append("medical_history")
+        if "risk factor" not in analysis_text or "risk factor" in analysis_text and "incomplete" in analysis_text:
+            missing.append("risk_factors")
+        if "hearing" not in analysis_text:
+            missing.append("hearing_assessment")
+        if "impact" not in analysis_text or "daily life" not in analysis_text:
+            missing.append("impact_assessment")
+        if "family" not in analysis_text:
+            missing.append("family_history")
+        if "treatment" not in analysis_text:
+            missing.append("treatment_history")
         
-        # Symptoms (25 points)
-        if collected_info.get("symptoms"):
-            symptom_count = len(collected_info["symptoms"])
-            if symptom_count >= 3:
-                info_score += 25
-            elif symptom_count >= 2:
-                info_score += 20
-            elif symptom_count >= 1:
-                info_score += 15
-        
-        # Medical history (20 points)
-        if collected_info.get("medical_history"):
-            info_score += 20
-        
-        # Risk factors (15 points)
-        if collected_info.get("risk_factors"):
-            info_score += 15
-        
-        # Hearing concerns (15 points)
-        if collected_info.get("hearing_concerns"):
-            info_score += 15
-        
-        # Impact assessment (15 points)
-        if collected_info.get("impact_assessment"):
-            info_score += 15
-        
-        # Medications (10 points)
-        if collected_info.get("medications"):
-            info_score += 10
-        
-        # Family history (10 points)
-        if collected_info.get("family_history"):
-            info_score += 10
-        
-        # Bonus for comprehensive responses
-        if message_count >= 20:
-            info_score += 10
-        
-        total_score = min(base_score + info_score, 100)
-        return total_score
+        return missing if missing else ["symptoms", "medical_history", "risk_factors", "family_history", "treatment_history"]
     
-    def _extract_collected_information(self, history: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Extract what information has been collected from conversation history"""
-        collected = {
+    def _create_assessment_prompt(self, message: str, progress_analysis: Dict[str, Any], user_context: Dict[str, Any], memory: ConversationBufferMemory) -> str:
+        """Create intelligent assessment prompt for AI with natural conversation focus"""
+        
+        # Get enhanced conversation context
+        session_id = getattr(memory, 'session_id', 'default')
+        conversation_context = self.get_conversation_context(session_id)
+        
+        # Create context-aware prompt
+        context_info = self._format_user_context_for_assessment(user_context)
+        
+        prompt = f"""
+        You are a warm, empathetic medical professional conducting a neurological assessment. Your goal is to build trust and gather comprehensive health information through natural conversation.
+        
+        PATIENT CONTEXT:
+        {context_info}
+        
+        ASSESSMENT STATUS:
+        - Current Stage: {progress_analysis['current_stage']}
+        - Completion: {progress_analysis['completion_score']}%
+        - Missing Areas: {', '.join(progress_analysis['missing_areas'])}
+        
+        CONVERSATION HISTORY (Last 8 messages):
+        {conversation_context}
+        
+        CURRENT PATIENT MESSAGE: {message}
+        
+        RESPONSE APPROACH:
+        1. **First, respond conversationally** - Acknowledge what they've shared and show understanding
+        2. **Build upon previous conversation** - Reference specific details they mentioned earlier
+        3. **Ask ONE natural follow-up question** - Make it feel like a natural conversation, not an interrogation
+        4. **Show empathy and validation** - Let them know their concerns are heard and important
+        
+        CONVERSATION STYLE:
+        - Be warm, caring, and professional
+        - Use natural language that flows from their previous responses
+        - Avoid medical jargon unless they use it first
+        - Show genuine interest in their well-being
+        - Make them feel comfortable sharing personal health information
+        
+        ASSESSMENT AREAS TO COVER (naturally, not as a checklist):
+        - Primary symptoms and their impact on daily life
+        - Medical background and current health status
+        - Family medical history (especially neurological)
+        - Lifestyle factors and risk assessment
+        - Hearing and balance concerns
+        - Previous treatments and their effectiveness
+        - Goals and expectations for this assessment
+        
+        COMPLETION GUIDANCE:
+        - When completion_score >= 75%, gently guide toward summary
+        - Don't rush completion - ensure they feel heard and understood
+        - If they seem ready to wrap up, acknowledge their readiness
+        - Focus on quality of information over quantity
+        
+        RESPONSE REQUIREMENTS:
+        - Start with empathy and understanding of their current message
+        - Reference specific details from previous conversation to show you're listening
+        - Ask only ONE focused question that flows naturally from what they've shared
+        - Don't repeat information they've already provided
+        - Use "I understand", "That sounds challenging", "I can see how that would affect you" type phrases
+        - Keep the tone supportive and encouraging
+        - IMPORTANT: Do NOT wrap your response in quotes or use quotation marks
+        - Write as if you're speaking directly to the patient
+        
+        Remember: You're having a conversation with a real person who may be experiencing health challenges. Make them feel heard, understood, and supported throughout this assessment.
+        
+        Return your response in a warm, conversational manner that feels like talking to a caring medical professional.
+        """
+        
+        return prompt
+    
+    def _format_user_context_for_assessment(self, user_context: Dict[str, Any]) -> str:
+        """Format user context for assessment prompts"""
+        if not user_context:
+            return "No previous information available."
+        
+        context_parts = []
+        
+        if user_context.get("name"):
+            context_parts.append(f"Patient Name: {user_context['name']}")
+        if user_context.get("age"):
+            context_parts.append(f"Age: {user_context['age']} years")
+        if user_context.get("gender"):
+            context_parts.append(f"Gender: {user_context['gender']}")
+        if user_context.get("existing_symptoms"):
+            symptoms = ", ".join(user_context["existing_symptoms"])
+            context_parts.append(f"Previously Reported Symptoms: {symptoms}")
+        if user_context.get("hearing_status") and user_context["hearing_status"] != "Not tested":
+            context_parts.append(f"Hearing Status: {user_context['hearing_status']}")
+        if user_context.get("previous_assessments"):
+            context_parts.append(f"Previous Assessments: {user_context['previous_assessments']} completed")
+        
+        return "\n".join(context_parts)
+    
+    def _create_structured_response_from_ai(self, ai_content: str, progress_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Create structured response from AI content"""
+        return {
+            "message": ai_content,
+            "assessment_complete": progress_analysis.get("assessment_complete", False),
+            "completion_score": progress_analysis.get("completion_score", 0),
+            "collected_data": self._extract_structured_data_from_ai(ai_content),
+            "assessment_stage": progress_analysis.get("current_stage", "initial"),
+            "next_questions": [],
+            "conversation_quality": progress_analysis.get("conversation_quality", "developing")
+        }
+    
+    def _extract_structured_data_from_ai(self, ai_content: str) -> Dict[str, Any]:
+        """Extract structured data from AI response"""
+        # Enhanced extraction for comprehensive medical assessment
+        data = {
             "symptoms": [],
+            "severity_levels": {},
+            "duration": "",
+            "location": "",
+            "triggers": [],
+            "frequency": "",
             "medical_history": [],
-            "risk_factors": [],
-            "hearing_concerns": [],
             "medications": [],
+            "allergies": [],
+            "surgeries": [],
             "family_history": [],
-            "impact_assessment": []
+            "risk_factors": [],
+            "lifestyle_factors": [],
+            "occupational_factors": [],
+            "environmental_factors": [],
+            "hearing_concerns": [],
+            "impact_assessment": "",
+            "treatment_history": [],
+            "previous_consultations": []
         }
         
-        # Enhanced keyword-based extraction
-        for msg in history:
-            if not msg.get("is_doctor"):
-                message_text = msg.get("message", "").lower()
-                
-                # Extract symptoms with more detail
-                symptom_keywords = [
-                    "pain", "headache", "dizziness", "numbness", "tingling", "weakness",
-                    "tremor", "seizure", "memory", "concentration", "balance", "coordination",
-                    "vision", "speech", "swallowing", "fatigue", "insomnia", "anxiety", "depression"
-                ]
-                if any(word in message_text for word in symptom_keywords):
-                    collected["symptoms"].append("neurological symptoms mentioned")
-                
-                # Extract medical history
-                if any(word in message_text for word in ["diagnosed", "condition", "disease", "medication", "treatment", "surgery", "hospital"]):
-                    collected["medical_history"].append("medical history mentioned")
-                
-                # Extract medications
-                if any(word in message_text for word in ["medication", "pill", "prescription", "drug", "tablet", "capsule"]):
-                    collected["medications"].append("medications mentioned")
-                
-                # Extract risk factors
-                if any(word in message_text for word in ["smoking", "alcohol", "stress", "work", "family", "exercise", "diet", "sleep"]):
-                    collected["risk_factors"].append("risk factors mentioned")
-                
-                # Extract hearing concerns
-                if any(word in message_text for word in ["hearing", "ear", "sound", "volume", "ringing", "tinnitus", "deafness"]):
-                    collected["hearing_concerns"].append("hearing concerns mentioned")
-                
-                # Extract family history
-                if any(word in message_text for word in ["family", "father", "mother", "sibling", "inherited", "genetic"]):
-                    collected["family_history"].append("family history mentioned")
-                
-                # Extract impact assessment
-                if any(word in message_text for word in ["work", "daily", "life", "quality", "function", "ability", "difficulty"]):
-                    collected["impact_assessment"].append("impact assessment mentioned")
+        # Enhanced extraction logic
+        content_lower = ai_content.lower()
         
-        return collected
+        # Extract symptoms with more comprehensive coverage
+        symptom_keywords = [
+            "pain", "headache", "migraine", "dizziness", "vertigo", "numbness", "tingling", 
+            "weakness", "tremor", "seizure", "memory", "concentration", "fatigue", "nausea",
+            "vision", "hearing", "balance", "coordination", "speech", "swallowing",
+            "mood", "anxiety", "depression", "insomnia", "appetite", "weight"
+        ]
+        
+        for keyword in symptom_keywords:
+            if keyword in content_lower:
+                data["symptoms"].append(keyword)
+        
+        # Extract severity indicators
+        severity_indicators = ["mild", "moderate", "severe", "intense", "debilitating"]
+        for indicator in severity_indicators:
+            if indicator in content_lower:
+                # Find associated symptom
+                for symptom in data["symptoms"]:
+                    if symptom in content_lower:
+                        data["severity_levels"][symptom] = indicator
+        
+        # Extract duration patterns
+        duration_patterns = ["days", "weeks", "months", "years", "chronic", "acute", "recent"]
+        for pattern in duration_patterns:
+            if pattern in content_lower:
+                data["duration"] = pattern
+        
+        # Extract location information
+        location_patterns = ["head", "neck", "back", "arms", "legs", "left", "right", "bilateral"]
+        for pattern in location_patterns:
+            if pattern in content_lower:
+                data["location"] = pattern
+        
+        # Extract triggers
+        trigger_patterns = ["stress", "exercise", "food", "weather", "position", "movement"]
+        for pattern in trigger_patterns:
+            if pattern in content_lower:
+                data["triggers"].append(pattern)
+        
+        # Extract frequency
+        frequency_patterns = ["daily", "weekly", "monthly", "occasional", "constant", "intermittent"]
+        for pattern in frequency_patterns:
+            if pattern in content_lower:
+                data["frequency"] = pattern
+        
+        # Extract medical history components
+        if "medication" in content_lower or "pill" in content_lower:
+            data["medications"].append("medications mentioned")
+        if "allergy" in content_lower:
+            data["allergies"].append("allergies mentioned")
+        if "surgery" in content_lower or "operation" in content_lower:
+            data["surgeries"].append("surgical history mentioned")
+        
+        # Extract family history
+        if "family" in content_lower:
+            data["family_history"].append("family history mentioned")
+        
+        # Extract risk factors
+        if "smoking" in content_lower or "alcohol" in content_lower:
+            data["lifestyle_factors"].append("substance use mentioned")
+        if "work" in content_lower or "job" in content_lower:
+            data["occupational_factors"].append("occupational factors mentioned")
+        if "environment" in content_lower or "exposure" in content_lower:
+            data["environmental_factors"].append("environmental factors mentioned")
+        
+        # Extract impact assessment
+        impact_patterns = ["daily life", "work", "relationships", "sleep", "exercise", "social"]
+        for pattern in impact_patterns:
+            if pattern in content_lower:
+                data["impact_assessment"] = "impact on daily activities mentioned"
+                break
+        
+        # Extract treatment history
+        if "treatment" in content_lower or "therapy" in content_lower:
+            data["treatment_history"].append("previous treatments mentioned")
+        if "doctor" in content_lower or "consultation" in content_lower:
+            data["previous_consultations"].append("previous medical consultations mentioned")
+        
+        return data
     
-    def _validate_and_enhance_response(self, response: Dict[str, Any], conversation_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate and enhance the AI response"""
-        # Ensure required fields exist
-        required_fields = ["message", "assessment_complete", "completion_score", "next_questions", "collected_data", "assessment_stage"]
-        for field in required_fields:
-            if field not in response:
-                if field == "assessment_complete":
-                    response[field] = False
-                elif field == "completion_score":
-                    response[field] = conversation_analysis.get("completion_score", 0)
-                elif field == "next_questions":
-                    response[field] = []
-                elif field == "collected_data":
-                    response[field] = {}
-                elif field == "assessment_stage":
-                    response[field] = conversation_analysis["current_stage"]
-        
-        # Ensure assessment_complete is boolean and properly set
-        if not isinstance(response.get("assessment_complete"), bool):
-            response["assessment_complete"] = False
-        
-        # Only mark complete if completion score is high enough
-        completion_score = response.get("completion_score", 0)
-        if completion_score < 85:  # Require 85% completion
-            response["assessment_complete"] = False
-        
-        # Ensure next_questions is a list
-        if not isinstance(response.get("next_questions"), list):
-            response["next_questions"] = []
-        
-        # Ensure collected_data is a dict
-        if not isinstance(response.get("collected_data"), dict):
-            response["collected_data"] = {}
-        
-        return response
+    def _create_fallback_response(self, message: str, stage: str) -> Dict[str, Any]:
+        """Create fallback response when AI service is unavailable"""
+        return {
+            "message": message,
+            "assessment_complete": False,
+            "completion_score": 0,
+            "collected_data": {},
+            "assessment_stage": stage,
+            "next_questions": ["Please describe your main symptoms", "How long have you been experiencing these symptoms?"],
+            "conversation_quality": "limited"
+        }
     
-    def generate_patient_report(self, collected_data: Dict[str, Any], hearing_results: List[Dict[str, Any]] = None, user_context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate comprehensive patient report from collected data with user context"""
+    def _create_completion_message(self, collected_data: Dict[str, Any]) -> str:
+        """Create natural completion message that guides users toward report generation"""
+        try:
+            message_parts = [
+                "I want to take a moment to acknowledge how thorough you've been in sharing your health concerns with me. 🙏",
+                "",
+                "Based on our conversation, I believe we've gathered enough meaningful information to create a comprehensive assessment of your situation."
+            ]
+            
+            # Add personalized acknowledgment of what they've shared
+            if collected_data.get("symptoms"):
+                symptom_count = len(collected_data["symptoms"])
+                if symptom_count == 1:
+                    message_parts.append(f"I understand you're dealing with {symptom_count} primary symptom that's affecting your daily life.")
+                else:
+                    message_parts.append(f"I understand you're dealing with {symptom_count} primary symptoms that are affecting your daily life.")
+            
+            if collected_data.get("medical_history") or collected_data.get("medications"):
+                message_parts.append("I also appreciate you sharing your medical background and current medications with me.")
+            
+            if collected_data.get("family_history"):
+                message_parts.append("Thank you for sharing your family medical history as well.")
+            
+            if collected_data.get("impact_assessment"):
+                message_parts.append("I can see how these health challenges are impacting your daily activities and quality of life.")
+            
+            message_parts.extend([
+                "",
+                "🎯 **What This Means for You**",
+                "",
+                "At this point, I believe we have enough information to create a meaningful medical assessment report that will help you:",
+                "• Understand your current health situation more clearly",
+                "• Identify potential risk factors and areas of concern",
+                "• Get actionable recommendations for next steps",
+                "• Have a comprehensive document for future medical consultations",
+                "",
+                "💡 **Next Steps**",
+                "",
+                "Rather than continuing to ask more questions, I'd like to transition into creating your personalized medical report. This report will consolidate everything we've discussed and provide you with:",
+                "• A clear summary of your health assessment",
+                "• Analysis of your symptoms and their patterns",
+                "• Risk assessment and recommendations",
+                "• Actionable next steps for your health journey",
+                "",
+                "🔒 **Chat Status**",
+                "",
+                "I'm going to lock this chat session now to preserve all the valuable information you've shared. This ensures your assessment data is secure and ready for report generation.",
+                "",
+                "📋 **Ready to Generate Your Report?**",
+                "",
+                "When you're ready, you can generate your comprehensive medical report. It will be based on everything we've discussed and tailored specifically to your situation.",
+                "",
+                "Thank you for trusting me with your health assessment. I hope this conversation has been helpful, and I'm confident your report will provide valuable insights for your health journey. 🌟"
+            ])
+            
+            return "\n".join(message_parts)
+            
+        except Exception as e:
+            logger.error(f"Error creating completion message: {e}")
+            return (
+                "Thank you for sharing your health concerns with me. I believe we've gathered enough information to create a meaningful assessment report. "
+                "The chat is now locked to preserve your data, and you can generate your comprehensive medical report when you're ready. "
+                "This report will help you understand your situation better and provide actionable next steps for your health journey."
+            )
+    
+    async def generate_patient_report(self, collected_data: Dict[str, Any], hearing_results: List[Dict[str, Any]] = None, user_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Generate comprehensive patient report using AI"""
         if not self.enabled:
             return {"error": "AI service unavailable"}
         
         try:
-            # Get current date for the report
-            from datetime import datetime
             current_date = datetime.now().strftime("%B %d, %Y")
             
-            # Prepare data for report generation
-            symptoms_text = ", ".join(collected_data.get("symptoms", [])) if collected_data.get("symptoms") else "No specific symptoms reported"
-            hearing_summary = self._summarize_hearing_results(hearing_results) if hearing_results else "No hearing tests available"
-            
-            # Include comprehensive user context in report generation
-            user_info = ""
-            patient_name = "Patient"
-            if user_context:
-                if user_context.get("age"):
-                    user_info += f"Age: {user_context['age']} years. "
-                if user_context.get("gender"):
-                    user_info += f"Gender: {user_context['gender']}. "
-                if user_context.get("existing_symptoms"):
-                    user_info += f"Previously reported symptoms: {', '.join(user_context['existing_symptoms'])}. "
-                if user_context.get("hearing_status"):
-                    user_info += f"Hearing status: {user_context['hearing_status']}. "
-                if user_context.get("previous_assessments"):
-                    user_info += f"Previous assessments: {user_context['previous_assessments']} completed. "
-            
-            # Extract detailed symptom information
-            symptom_details = ""
-            if collected_data.get("symptoms"):
-                symptom_details = "\n".join([f"- {symptom}" for symptom in collected_data.get("symptoms", [])])
-            
-            # Extract severity information
-            severity_info = ""
-            if collected_data.get("severity_levels"):
-                severity_info = "\n".join([f"- {symptom}: {severity}/10" for symptom, severity in collected_data.get("severity_levels", {}).items()])
+            # Format data for report generation
+            data_summary = self._format_data_for_report(collected_data, hearing_results, user_context)
             
             prompt = f"""
             Generate a comprehensive, professional medical report for a patient based on the following assessment data.
             
             REPORT DATE: {current_date}
-            PATIENT INFORMATION: {user_info}
             
             ASSESSMENT DATA:
-            Symptoms Identified: {symptom_details}
-            Severity Levels: {severity_info}
-            Duration: {collected_data.get("duration", "Not specified")}
-            Location: {collected_data.get("location", "Not specified")}
-            Triggers: {", ".join(collected_data.get("triggers", [])) if collected_data.get("triggers") else "Not identified"}
-            Medical History: {", ".join(collected_data.get("medical_history", [])) if collected_data.get("medical_history") else "No significant medical history reported"}
-            Current Medications: {", ".join(collected_data.get("medications", [])) if collected_data.get("medications") else "No current medications reported"}
-            Family History: {", ".join(collected_data.get("family_history", [])) if collected_data.get("family_history") else "No family history reported"}
-            Risk Factors: {", ".join(collected_data.get("risk_factors", [])) if collected_data.get("risk_factors") else "No specific risk factors identified"}
-            Lifestyle Factors: {", ".join(collected_data.get("lifestyle_factors", [])) if collected_data.get("lifestyle_factors") else "No lifestyle factors reported"}
-            Hearing Assessment: {hearing_summary}
-            Impact on Daily Life: {collected_data.get("impact_assessment", "Not assessed")}
+            {data_summary}
             
             REQUIREMENTS:
             Create a professional medical report with the following structure:
@@ -470,7 +637,7 @@ class AIService:
                - Referral recommendations if needed
             
             IMPORTANT GUIDELINES:
-            - Use the current date ({current_date}) in the report, do not generate fake dates
+            - Use the current date ({current_date})
             - Include the patient's name if available in the context
             - Be specific and actionable in recommendations
             - Use appropriate medical terminology while maintaining clarity
@@ -483,11 +650,11 @@ class AIService:
             Format the report professionally with clear section headers and bullet points where appropriate.
             """
             
-            response = self.model.generate_content(prompt)
+            response = self.langchain_model.invoke(prompt)
             
             return {
-                "report": response.text,
-                "generated_at": "2024-01-01T00:00:00Z",  # In production, use actual timestamp
+                "report": response.content,
+                "generated_at": datetime.now().isoformat(),
                 "data_summary": collected_data,
                 "hearing_results": hearing_results,
                 "user_context": user_context
@@ -497,119 +664,71 @@ class AIService:
             logger.error(f"Error generating patient report: {e}")
             return {"error": "Failed to generate report"}
     
-    def _create_medical_assessment_context(self, stage: str, user_context: Dict[str, Any] = None) -> str:
-        """Create context based on assessment stage with user information"""
-        base_context = """
-        You are a professional medical attendant for NeuraVia, conducting structured neurological assessments.
-        Your goal is to systematically collect comprehensive patient information for medical reporting.
+    def _format_data_for_report(self, collected_data: Dict[str, Any], hearing_results: List[Dict[str, Any]], user_context: Dict[str, Any]) -> str:
+        """Format collected data for report generation"""
+        data_parts = []
         
-        Important guidelines:
-        - Always be professional, empathetic, and supportive
-        - Ask ONE focused question at a time to avoid overwhelming the patient
-        - Build upon previous responses - don't repeat questions already answered
-        - Focus on neurological symptoms, hearing concerns, and relevant medical history
-        - Never provide medical diagnosis - only collect information
-        - Use the user's context to personalize questions appropriately
-        - Keep conversations natural and conversational, not robotic
-        - Acknowledge patient responses before asking follow-up questions
-        """
-        
-        # Add user context information
-        user_info = ""
+        # User context
         if user_context:
+            if user_context.get("name"):
+                data_parts.append(f"Patient Name: {user_context['name']}")
             if user_context.get("age"):
-                user_info += f"\nPatient Age: {user_context['age']} years"
+                data_parts.append(f"Age: {user_context['age']} years")
             if user_context.get("gender"):
-                user_info += f"\nPatient Gender: {user_context['gender']}"
-            if user_context.get("existing_symptoms"):
-                user_info += f"\nPreviously Reported Symptoms: {', '.join(user_context['existing_symptoms'])}"
-            if user_context.get("hearing_status"):
-                user_info += f"\nHearing Status: {user_context['hearing_status']}"
-            if user_context.get("previous_assessments"):
-                user_info += f"\nPrevious Assessments: {user_context['previous_assessments']} completed"
+                data_parts.append(f"Gender: {user_context['gender']}")
         
-        stage_specific = {
-            "initial": """
-            Current Stage: Initial Assessment
-            - Introduce yourself and explain the assessment process briefly
-            - Ask about the main reason for seeking consultation
-            - Begin collecting basic symptom information
-            - Focus on understanding the patient's primary concerns
-            - Use patient's age, gender, and existing symptoms to personalize questions
-            - Keep the first question simple and open-ended
-            """,
-            "symptom_collection": """
-            Current Stage: Symptom Collection
-            - Focus on ONE symptom at a time for detailed exploration
-            - Ask about severity, duration, and frequency of the current symptom
-            - Collect information about symptom triggers and patterns
-            - Explore the impact of this specific symptom on daily life
-            - Consider age and gender-specific symptom patterns
-            - Don't move to the next symptom until current one is fully explored
-            """,
-            "medical_history": """
-            Current Stage: Medical History
-            - Collect relevant medical history without being overwhelming
-            - Ask about previous neurological issues or related conditions
-            - Gather information about current medications and treatments
-            - Explore family medical history if relevant to current symptoms
-            - Consider age-appropriate medical history questions
-            - Focus on conditions that might relate to current symptoms
-            """,
-            "risk_assessment": """
-            Current Stage: Risk Assessment
-            - Identify lifestyle and environmental risk factors
-            - Ask about occupational hazards and work environment
-            - Explore stress levels and mental health factors
-            - Assess social and family risk factors
-            - Consider age and gender-specific risk factors
-            - Focus on modifiable risk factors when possible
-            """,
-            "hearing_assessment": """
-            Current Stage: Hearing Assessment
-            - Ask about hearing concerns and symptoms specifically
-            - Collect information about hearing difficulties and patterns
-            - Prepare for hearing test integration
-            - Assess auditory health concerns
-            - Consider occupational and age-related hearing factors
-            - Focus on symptoms that might indicate hearing issues
-            """,
-            "final_review": """
-            Current Stage: Final Assessment
-            - Review all collected information briefly
-            - Ask any remaining clarifying questions
-            - Prepare to generate comprehensive report
-            - Ensure all key areas have been covered
-            - Validate completeness of assessment
-            - Thank the patient for their time and cooperation
-            """
-        }
+        # Collected data
+        if collected_data.get("symptoms"):
+            symptoms = "\n".join([f"- {symptom}" for symptom in collected_data["symptoms"]])
+            data_parts.append(f"Symptoms Identified:\n{symptoms}")
         
-        return base_context + user_info + stage_specific.get(stage, stage_specific["initial"])
-    
-    def _format_conversation_history(self, history: List[Dict[str, Any]]) -> str:
-        """Format conversation history for context"""
-        if not history:
-            return ""
+        if collected_data.get("severity_levels"):
+            severity = "\n".join([f"- {symptom}: {level}" for symptom, level in collected_data["severity_levels"].items()])
+            data_parts.append(f"Severity Levels:\n{severity}")
         
-        formatted = "\nConversation History:\n"
-        for msg in history[-15:]:  # Last 15 messages for context
-            role = "Patient" if not msg.get("is_doctor") else "Medical Attendant"
-            formatted += f"{role}: {msg.get('message', '')}\n"
+        if collected_data.get("duration"):
+            data_parts.append(f"Duration: {collected_data['duration']}")
         
-        return formatted
-    
-    def _create_fallback_response(self, text: str, stage: str) -> Dict[str, Any]:
-        """Create fallback response when JSON parsing fails"""
-        return {
-            "message": text,
-            "assessment_complete": False,
-            "completion_score": 0,
-            "next_questions": ["Please continue describing your symptoms", "How severe are these symptoms?"],
-            "collected_data": {},
-            "assessment_stage": stage,
-            "missing_areas": ["symptoms", "medical_history", "risk_factors"]
-        }
+        if collected_data.get("location"):
+            data_parts.append(f"Location: {collected_data['location']}")
+        
+        if collected_data.get("triggers"):
+            triggers = ", ".join(collected_data["triggers"])
+            data_parts.append(f"Triggers: {triggers}")
+        
+        if collected_data.get("medical_history"):
+            history = ", ".join(collected_data["medical_history"])
+            data_parts.append(f"Medical History: {history}")
+        
+        if collected_data.get("medications"):
+            meds = ", ".join(collected_data["medications"])
+            data_parts.append(f"Current Medications: {meds}")
+        
+        if collected_data.get("family_history"):
+            family = ", ".join(collected_data["family_history"])
+            data_parts.append(f"Family History: {family}")
+        
+        if collected_data.get("risk_factors"):
+            risks = ", ".join(collected_data["risk_factors"])
+            data_parts.append(f"Risk Factors: {risks}")
+        
+        if collected_data.get("lifestyle_factors"):
+            lifestyle = ", ".join(collected_data["lifestyle_factors"])
+            data_parts.append(f"Lifestyle Factors: {lifestyle}")
+        
+        if collected_data.get("hearing_concerns"):
+            hearing = ", ".join(collected_data["hearing_concerns"])
+            data_parts.append(f"Hearing Concerns: {hearing}")
+        
+        if collected_data.get("impact_assessment"):
+            data_parts.append(f"Impact on Daily Life: {collected_data['impact_assessment']}")
+        
+        # Hearing results
+        if hearing_results:
+            hearing_summary = self._summarize_hearing_results(hearing_results)
+            data_parts.append(f"Hearing Test Results: {hearing_summary}")
+        
+        return "\n\n".join(data_parts) if data_parts else "No assessment data available"
     
     def _summarize_hearing_results(self, hearing_results: List[Dict[str, Any]]) -> str:
         """Summarize hearing test results for the report"""
@@ -617,7 +736,7 @@ class AIService:
             return "No hearing tests available"
         
         try:
-            latest_test = hearing_results[0]  # Assuming sorted by date
+            latest_test = hearing_results[0]
             left_score = latest_test.get("left_ear_score", "N/A")
             right_score = latest_test.get("right_ear_score", "N/A")
             overall = latest_test.get("overall_score", "N/A")
@@ -625,45 +744,6 @@ class AIService:
             return f"Latest hearing test: Left ear {left_score}%, Right ear {right_score}%, Overall {overall}%"
         except Exception:
             return "Hearing test results available but format unclear"
-    
-    def analyze_symptoms(self, symptoms: List[str]) -> Dict[str, Any]:
-        """Analyze user symptoms and provide general insights"""
-        if not self.enabled:
-            return {"analysis": "AI service unavailable", "recommendations": []}
-        
-        try:
-            symptoms_text = ", ".join(symptoms)
-            prompt = f"""
-            Analyze these neurological symptoms: {symptoms_text}
-            
-            Provide:
-            1. General information about these symptoms
-            2. Common causes (non-diagnostic)
-            3. When to seek medical attention
-            4. General lifestyle recommendations
-            
-            Format as a structured response.
-            """
-            
-            response = self.model.generate_content(prompt)
-            return {
-                "analysis": response.text,
-                "recommendations": self._extract_recommendations(response.text)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing symptoms: {e}")
-            return {"analysis": "Unable to analyze symptoms", "recommendations": []}
-    
-    def _extract_recommendations(self, text: str) -> List[str]:
-        """Extract recommendations from AI response"""
-        recommendations = []
-        lines = text.split('\n')
-        for line in lines:
-            if any(keyword in line.lower() for keyword in ['recommend', 'suggest', 'advise', 'consider']):
-                recommendations.append(line.strip())
-        
-        return recommendations[:3]  # Return top 3 recommendations
     
     def _parse_report_into_sections(self, report_text: str) -> Dict[str, str]:
         """Parse the AI-generated report into structured sections"""
@@ -677,7 +757,6 @@ class AIService:
                 "follow_up_actions": ""
             }
             
-            # Split the report into lines for processing
             lines = report_text.split('\n')
             current_section = None
             current_content = []
@@ -685,7 +764,6 @@ class AIService:
             for line in lines:
                 line = line.strip()
                 
-                # Check for section headers
                 if any(keyword in line.lower() for keyword in ['executive summary', '1.', '1)']):
                     if current_section and current_content:
                         sections[current_section] = '\n'.join(current_content).strip()
@@ -717,14 +795,11 @@ class AIService:
                     current_section = "follow_up_actions"
                     current_content = []
                 elif line and current_section:
-                    # Add content to current section
                     current_content.append(line)
             
-            # Save the last section
             if current_section and current_content:
                 sections[current_section] = '\n'.join(current_content).strip()
             
-            # If no sections were found, use the entire text for executive summary
             if not any(sections.values()):
                 sections["executive_summary"] = report_text
             
@@ -732,7 +807,6 @@ class AIService:
             
         except Exception as e:
             logger.error(f"Error parsing report into sections: {e}")
-            # Return the entire report as executive summary if parsing fails
             return {
                 "executive_summary": report_text,
                 "symptom_analysis": "",
@@ -741,6 +815,153 @@ class AIService:
                 "recommendations": "",
                 "follow_up_actions": ""
             }
+    
+    def analyze_symptoms(self, symptoms: List[str]) -> Dict[str, Any]:
+        """Analyze user symptoms using AI"""
+        if not self.enabled:
+            return {"analysis": "AI service unavailable", "recommendations": []}
+        
+        try:
+            symptoms_text = ", ".join(symptoms)
+            prompt = f"""
+            Analyze these neurological symptoms: {symptoms_text}
+            
+            Provide:
+            1. General information about these symptoms
+            2. Common causes (non-diagnostic)
+            3. When to seek medical attention
+            4. General lifestyle recommendations
+            
+            Format as a structured response.
+            """
+            
+            response = self.langchain_model.invoke(prompt)
+            return {
+                "analysis": response.content,
+                "recommendations": self._extract_recommendations(response.content)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing symptoms: {e}")
+            return {"analysis": "Unable to analyze symptoms", "recommendations": []}
+    
+    def _extract_recommendations(self, text: str) -> List[str]:
+        """Extract recommendations from AI response"""
+        recommendations = []
+        lines = text.split('\n')
+        for line in lines:
+            if any(keyword in line.lower() for keyword in ['recommend', 'suggest', 'advise', 'consider']):
+                recommendations.append(line.strip())
+        
+        return recommendations[:3]
+
+    def _determine_assessment_completion_looser(self, completion_score: int, analysis_text: str, history: List[Dict[str, Any]]) -> bool:
+        """Determine if the assessment is complete based on looser criteria"""
+        # This method is not used in the new _analyze_conversation_progress_ai,
+        # but it's kept for potential future use or if it's called elsewhere.
+        return completion_score >= 75
+
+    def _determine_assessment_stage_improved(self, completion_score: int, analysis_text: str, history: List[Dict[str, Any]]) -> str:
+        """Determine assessment stage with improved logic"""
+        if completion_score >= 85:
+            return "complete"
+        elif completion_score >= 75:
+            return "ready_for_summary"
+        elif completion_score >= 50:
+            return "gathering"
+        else:
+            return "initial"
+    
+    def _calculate_completion_score(self, analysis_text: str, history: List[Dict[str, Any]], user_context: Dict[str, Any]) -> int:
+        """Calculate completion score based on conversation analysis"""
+        base_score = 0
+        
+        # Base score from conversation length (up to 30 points)
+        if len(history) >= 10:
+            base_score += 30
+        elif len(history) >= 6:
+            base_score += 20
+        elif len(history) >= 3:
+            base_score += 10
+        
+        # Content coverage score (up to 70 points)
+        content_score = 0
+        
+        # Symptoms coverage (up to 20 points)
+        if "symptom" in analysis_text:
+            if "detailed" in analysis_text or "thorough" in analysis_text:
+                content_score += 20
+            elif "basic" in analysis_text or "main" in analysis_text:
+                content_score += 15
+            else:
+                content_score += 10
+        
+        # Medical history coverage (up to 15 points)
+        if "medical history" in analysis_text or "medication" in analysis_text:
+            content_score += 15
+        
+        # Risk factors coverage (up to 15 points)
+        if "risk factor" in analysis_text or "lifestyle" in analysis_text:
+            content_score += 15
+        
+        # Impact assessment (up to 10 points)
+        if "impact" in analysis_text or "daily life" in analysis_text:
+            content_score += 10
+        
+        # Family history (up to 5 points)
+        if "family" in analysis_text:
+            content_score += 5
+        
+        # Hearing concerns (up to 5 points)
+        if "hearing" in analysis_text or "auditory" in analysis_text:
+            content_score += 5
+        
+        # Cap content score at 70
+        content_score = min(content_score, 70)
+        
+        total_score = base_score + content_score
+        
+        # Ensure score is between 0 and 100
+        return max(0, min(100, total_score))
+    
+    def _suggest_next_questions(self, completion_score: int, analysis_text: str) -> List[str]:
+        """Suggest next questions based on completion score and analysis"""
+        questions = []
+        
+        if completion_score < 50:
+            # Early stage - focus on basic information
+            if "symptom" not in analysis_text:
+                questions.append("Can you describe your main symptoms in detail?")
+            if "medical history" not in analysis_text:
+                questions.append("Do you have any existing medical conditions or take medications?")
+            if "duration" not in analysis_text:
+                questions.append("How long have you been experiencing these symptoms?")
+        
+        elif completion_score < 75:
+            # Gathering stage - focus on details and impact
+            if "severity" not in analysis_text:
+                questions.append("How severe are these symptoms on a scale of 1-10?")
+            if "trigger" not in analysis_text:
+                questions.append("What seems to trigger or worsen these symptoms?")
+            if "impact" not in analysis_text:
+                questions.append("How do these symptoms affect your daily life and activities?")
+            if "family" not in analysis_text:
+                questions.append("Is there any family history of similar neurological conditions?")
+        
+        else:
+            # Ready for summary - focus on final details
+            if "treatment" not in analysis_text:
+                questions.append("Have you tried any treatments or medications for these symptoms?")
+            if "hearing" not in analysis_text:
+                questions.append("Do you have any concerns about your hearing or balance?")
+            if "follow-up" not in analysis_text:
+                questions.append("What would you like to achieve from this assessment?")
+        
+        # Always add a general follow-up if we have few questions
+        if len(questions) < 2:
+            questions.append("Is there anything else you'd like me to know about your health concerns?")
+        
+        return questions[:3]  # Limit to 3 questions
 
 # Global AI service instance
 ai_service = AIService()

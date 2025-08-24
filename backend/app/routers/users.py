@@ -147,7 +147,7 @@ async def login(credentials: UserLogin):
 async def get_user_profile(user_id: str):
     """Get user profile by ID"""
     try:
-        profile = await db.get_user_profile(user_id)
+        profile = await db.get_or_create_user_profile(user_id)
         
         if not profile:
             raise HTTPException(status_code=404, detail="User profile not found")
