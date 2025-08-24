@@ -7,8 +7,6 @@ import {
 	AlertTriangle,
 	CheckCircle,
 	Clock,
-	Download,
-	Printer,
 	Share2,
 	Eye,
 	EyeOff,
@@ -358,18 +356,6 @@ export default function MedicalReportView({ report, onBack }: MedicalReportViewP
 									</div>
 								</div>
 							</div>
-						</div>
-
-						{/* Action Buttons */}
-						<div className="flex flex-col space-y-2 ml-6">
-							<button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2">
-								<Download className="w-4 h-4" />
-								<span>Download PDF</span>
-							</button>
-							<button className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2">
-								<Printer className="w-4 h-4" />
-								<span>Print</span>
-							</button>
 						</div>
 					</div>
 				</div>

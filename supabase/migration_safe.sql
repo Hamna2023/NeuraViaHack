@@ -66,3 +66,28 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+-- Migration script to add missing chat_locked column
+-- This script is safe to run on existing databases
+
+-- Add chat_locked column if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'chat_sessions' 
+        AND column_name = 'chat_locked'
+    ) THEN
+        ALTER TABLE public.chat_sessions 
+        ADD COLUMN chat_locked BOOLEAN DEFAULT FALSE;
+        
+        RAISE NOTICE 'Added chat_locked column to chat_sessions table';
+    ELSE
+        RAISE NOTICE 'chat_locked column already exists in chat_sessions table';
+    END IF;
+END $$;
+
+-- Update existing sessions to have chat_locked = false
+UPDATE public.chat_sessions 
+SET chat_locked = FALSE 
+WHERE chat_locked IS NULL;

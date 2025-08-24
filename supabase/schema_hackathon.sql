@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS public.chat_sessions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     is_active BOOLEAN DEFAULT TRUE,
     assessment_complete BOOLEAN DEFAULT FALSE,
-    completion_score INTEGER DEFAULT 0 CHECK (completion_score >= 0 AND completion_score <= 100)
+    completion_score INTEGER DEFAULT 0 CHECK (completion_score >= 0 AND completion_score <= 100),
+    chat_locked BOOLEAN DEFAULT FALSE
 );
 
 -- Chat messages table (FIXED: includes session_id)
