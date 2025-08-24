@@ -14,8 +14,11 @@ import {
 	AlertTriangle,
 	CheckCircle,
 	Clock,
+	ArrowRight,
+	User,
 } from "lucide-react";
 import Link from "next/link";
+import MedicalReportView from "@/components/MedicalReportView";
 
 interface Symptom {
 	id: string;
@@ -59,6 +62,7 @@ export default function ReportsPage() {
 	const [patientReports, setPatientReports] = useState<PatientReport[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [activeTab, setActiveTab] = useState<"overview" | "symptoms" | "hearing" | "reports">("overview");
+	const [selectedReport, setSelectedReport] = useState<PatientReport | null>(null);
 
 	// Redirect if not authenticated
 	useEffect(() => {
@@ -146,6 +150,14 @@ export default function ReportsPage() {
 		});
 	};
 
+	const handleViewReport = (report: PatientReport) => {
+		setSelectedReport(report);
+	};
+
+	const handleBackToReports = () => {
+		setSelectedReport(null);
+	};
+
 	if (!user) {
 		return null; // Will redirect
 	}
@@ -159,6 +171,11 @@ export default function ReportsPage() {
 				</div>
 			</div>
 		);
+	}
+
+	// Show detailed report view if a report is selected
+	if (selectedReport) {
+		return <MedicalReportView report={selectedReport} onBack={handleBackToReports} />;
 	}
 
 	return (
@@ -281,6 +298,10 @@ export default function ReportsPage() {
 								{patientReports.length > 0 && (
 									<div className="space-y-2">
 										<div className="text-sm">
+											<span className="text-gray-600">Latest: </span>
+											<span className="font-medium text-gray-800 truncate block">{patientReports[0].report_title}</span>
+										</div>
+										<div className="text-sm">
 											<span className="text-gray-600">Status: </span>
 											<span
 												className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -292,6 +313,14 @@ export default function ReportsPage() {
 											</span>
 										</div>
 										<p className="text-xs text-gray-500">Last updated: {formatDate(patientReports[0].created_at)}</p>
+
+										{patientReports.length > 1 && (
+											<button
+												onClick={() => setActiveTab("reports")}
+												className="w-full mt-2 text-center bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs">
+												View All Reports
+											</button>
+										)}
 									</div>
 								)}
 							</div>
@@ -449,13 +478,20 @@ export default function ReportsPage() {
 					{activeTab === "reports" && (
 						<div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
 							<div className="flex items-center justify-between mb-6">
-								<h2 className="text-2xl font-bold text-gray-900">AI Medical Reports</h2>
-								<Link
-									href="/chat"
-									className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2">
-									<Brain className="w-4 h-4" />
-									<span>Start New Assessment</span>
-								</Link>
+								<div>
+									<h2 className="text-2xl font-bold text-gray-900">AI Medical Reports</h2>
+									<p className="text-gray-600 mt-1">
+										{patientReports.length} assessment{patientReports.length !== 1 ? "s" : ""} completed
+									</p>
+								</div>
+								<div className="flex items-center space-x-3">
+									<Link
+										href="/chat"
+										className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2">
+										<Brain className="w-4 h-4" />
+										<span>Start New Assessment</span>
+									</Link>
+								</div>
 							</div>
 
 							{patientReports.length === 0 ? (
@@ -472,11 +508,11 @@ export default function ReportsPage() {
 											className="block w-full max-w-md mx-auto bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors">
 											Start AI Assessment
 										</Link>
-										<p className="text-sm text-gray-500">The assessment typically takes 5-10 minutes and covers:</p>
+										<p className="text-sm text-gray-500">The assessment typically takes 10-15 minutes and covers:</p>
 										<div className="max-w-md mx-auto text-left text-sm text-gray-600 space-y-1">
 											<div className="flex items-center space-x-2">
 												<div className="w-2 h-2 bg-green-500 rounded-full"></div>
-												<span>Symptom evaluation</span>
+												<span>Symptom evaluation and analysis</span>
 											</div>
 											<div className="flex items-center space-x-2">
 												<div className="w-2 h-2 bg-green-500 rounded-full"></div>
@@ -485,6 +521,10 @@ export default function ReportsPage() {
 											<div className="flex items-center space-x-2">
 												<div className="w-2 h-2 bg-green-500 rounded-full"></div>
 												<span>Risk factor assessment</span>
+											</div>
+											<div className="flex items-center space-x-2">
+												<div className="w-2 h-2 bg-green-500 rounded-full"></div>
+												<span>Hearing health evaluation</span>
 											</div>
 											<div className="flex items-center space-x-2">
 												<div className="w-2 h-2 bg-green-500 rounded-full"></div>
@@ -514,9 +554,21 @@ export default function ReportsPage() {
 									{patientReports.map((report) => (
 										<div
 											key={report.id}
-											className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-											<div className="flex items-center justify-between mb-4">
-												<h3 className="text-xl font-semibold text-gray-800">{report.report_title}</h3>
+											className="border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-200 hover:border-blue-300">
+											<div className="flex items-start justify-between mb-4">
+												<div className="flex-1">
+													<h3 className="text-xl font-semibold text-gray-800 mb-2">{report.report_title}</h3>
+													<div className="flex items-center space-x-4 text-sm text-gray-500">
+														<span className="flex items-center space-x-1">
+															<Calendar className="w-4 h-4" />
+															{formatDate(report.generated_at || report.created_at)}
+														</span>
+														<span className="flex items-center space-x-1">
+															<User className="w-4 h-4" />
+															{report.assessment_stage.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+														</span>
+													</div>
+												</div>
 												<div className="flex items-center space-x-2">
 													<span
 														className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -537,37 +589,71 @@ export default function ReportsPage() {
 												</div>
 											</div>
 
-											<div className="grid md:grid-cols-2 gap-6 mb-4">
+											{/* Report Preview - Show clean text instead of raw markdown */}
+											<div className="mb-4">
 												{report.executive_summary && (
-													<div>
-														<h4 className="font-semibold text-gray-700 mb-2">Executive Summary</h4>
-														<p className="text-gray-600 text-sm">{report.executive_summary}</p>
-													</div>
-												)}
-												{report.recommendations && (
-													<div>
-														<h4 className="font-semibold text-gray-700 mb-2">Recommendations</h4>
-														<p className="text-gray-600 text-sm">{report.recommendations}</p>
+													<div className="bg-gray-50 rounded-lg p-4">
+														<h4 className="font-semibold text-gray-700 mb-2 flex items-center space-x-2">
+															<Brain className="w-4 h-4 text-blue-600" />
+															<span>Executive Summary</span>
+														</h4>
+														<p className="text-gray-600 text-sm leading-relaxed line-clamp-3">
+															{/* Clean markdown text for display */}
+															{report.executive_summary
+																.replace(/^#+\s*/gm, "") // Remove headers
+																.replace(/\*\*(.*?)\*\*/g, "$1") // Remove bold
+																.replace(/\*(.*?)\*/g, "$1") // Remove italic
+																.replace(/`(.*?)`/g, "$1") // Remove code
+																.replace(/\[(.*?)\]\(.*?\)/g, "$1") // Remove links
+																.replace(/^\s*[-*+]\s*/gm, "• ") // Convert list markers
+																.replace(/^\s*\d+\.\s*/gm, "") // Remove numbered lists
+																.replace(/\n{3,}/g, "\n\n") // Limit line breaks
+																.trim()}
+														</p>
 													</div>
 												)}
 											</div>
 
-											<div className="flex items-center justify-between text-sm text-gray-500">
-												<span>Generated: {formatDate(report.generated_at)}</span>
-												<span>Stage: {report.assessment_stage}</span>
+											{/* Report Stats */}
+											<div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+												<div className="text-center p-3 bg-blue-50 rounded-lg">
+													<p className="text-gray-500">Symptoms</p>
+													<p className="font-semibold text-blue-600">
+														{report.symptom_analysis ? "Analyzed" : "Pending"}
+													</p>
+												</div>
+												<div className="text-center p-3 bg-orange-50 rounded-lg">
+													<p className="text-gray-500">Risk Assessment</p>
+													<p className="font-semibold text-orange-600">
+														{report.risk_assessment ? "Completed" : "Pending"}
+													</p>
+												</div>
+												<div className="text-center p-3 bg-purple-50 rounded-lg">
+													<p className="text-gray-500">Hearing</p>
+													<p className="font-semibold text-purple-600">
+														{report.hearing_assessment_summary ? "Assessed" : "Pending"}
+													</p>
+												</div>
 											</div>
 
 											{/* Action Buttons */}
-											{!report.is_complete && (
-												<div className="mt-4 pt-4 border-t border-gray-200">
+											<div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+												<button
+													onClick={() => handleViewReport(report)}
+													className="inline-flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+													<Eye className="w-4 h-4" />
+													<span>View Full Report</span>
+												</button>
+
+												{!report.is_complete && (
 													<Link
 														href="/chat"
-														className="inline-flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+														className="inline-flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
 														<Brain className="w-4 h-4" />
 														<span>Continue Assessment</span>
 													</Link>
-												</div>
-											)}
+												)}
+											</div>
 										</div>
 									))}
 								</div>

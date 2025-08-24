@@ -74,7 +74,7 @@ class SupabaseDB:
         return self.client is not None
     
     # User Profile Operations
-    async def create_user_profile(self, user_id: str, email: str, age: int = None, gender: str = None) -> Optional[Dict[str, Any]]:
+    async def create_user_profile(self, user_id: str, email: str, name: str = None, age: int = None, gender: str = None) -> Optional[Dict[str, Any]]:
         """Create a new user profile"""
         if not self.is_connected():
             logger.error(f"Cannot create user profile - database not connected")
@@ -85,6 +85,7 @@ class SupabaseDB:
             profile_data = {
                 "id": user_id,
                 "email": email,
+                "name": name,
                 "age": age,
                 "gender": gender
             }
@@ -121,27 +122,87 @@ class SupabaseDB:
             response = self.client.table('user_profiles')\
                 .select('*')\
                 .eq('id', user_id)\
-                .single()\
                 .execute()
             
-            if response.data:
-                profile_data = response.data
-                logger.info(f"Found user profile: {profile_data}")
+            if response.data and len(response.data) > 0:
+                profile_data = response.data[0]
                 # Convert any datetime string fields to proper datetime objects
                 converted_profile = _convert_datetime_fields(profile_data)
                 return converted_profile
-            else:
-                logger.info(f"No user profile found for {user_id}")
-                return None
+            return None
         except APIError as e:
-            if "No rows found" in str(e):
-                logger.info(f"No user profile found for {user_id}")
-                return None
-            logger.error(f"API Error getting user profile: {e}")
+            logger.error(f"Error getting user profile: {e}")
             return None
+    
+    async def get_or_create_user_profile(self, user_id: str, email: str = None, name: str = None) -> Optional[Dict[str, Any]]:
+        """Get user profile by ID, or create a default one if it doesn't exist"""
+        if not self.is_connected():
+            logger.warning(f"Database not connected - creating mock profile for hackathon demo")
+            # For hackathon demos, return a mock profile when database is not connected
+            mock_profile = {
+                "id": user_id,
+                "email": email or f"user_{user_id[:8]}@example.com",
+                "name": name or "Hackathon User",
+                "age": None,
+                "gender": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            }
+            logger.info(f"Created mock profile for hackathon demo: {mock_profile}")
+            return mock_profile
+        
+        try:
+            # First try to get existing profile
+            existing_profile = await self.get_user_profile(user_id)
+            if existing_profile:
+                logger.info(f"Found existing profile for user {user_id}")
+                return existing_profile
+            
+            # Create default profile if none exists
+            logger.info(f"No profile found for user {user_id}, creating default profile")
+            default_email = email or f"user_{user_id[:8]}@example.com"
+            default_name = name or "User"
+            
+            default_profile = await self.create_user_profile(
+                user_id=user_id,
+                email=default_email,
+                name=default_name,
+                age=None,
+                gender=None
+            )
+            
+            if default_profile:
+                logger.info(f"Successfully created default profile for user {user_id}")
+                return default_profile
+            else:
+                logger.error(f"Failed to create default profile for user {user_id}")
+                # Return mock profile as fallback for hackathon
+                mock_profile = {
+                    "id": user_id,
+                    "email": default_email,
+                    "name": default_name,
+                    "age": None,
+                    "gender": None,
+                    "created_at": datetime.now(),
+                    "updated_at": datetime.now()
+                }
+                logger.info(f"Using mock profile as fallback: {mock_profile}")
+                return mock_profile
+                
         except Exception as e:
-            logger.error(f"Unexpected error getting user profile: {e}")
-            return None
+            logger.error(f"Error in get_or_create_user_profile: {e}")
+            # Return mock profile as fallback for hackathon
+            mock_profile = {
+                "id": user_id,
+                "email": email or f"user_{user_id[:8]}@example.com",
+                "name": name or "Hackathon User",
+                "age": None,
+                "gender": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now()
+            }
+            logger.info(f"Using mock profile as fallback after error: {mock_profile}")
+            return mock_profile
     
     async def update_user_profile(self, user_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Update user profile"""
@@ -507,6 +568,72 @@ class SupabaseDB:
         except APIError as e:
             logger.error(f"Error deleting symptom: {e}")
             return False
+
+    # Chat Session Operations
+    async def deactivate_user_sessions(self, user_id: str) -> bool:
+        """Deactivate all active sessions for a user"""
+        if not self.is_connected():
+            return False
+        
+        try:
+            response = self.client.table('chat_sessions')\
+                .update({"is_active": False})\
+                .eq('user_id', user_id)\
+                .eq('is_active', True)\
+                .execute()
+            logger.info(f"Deactivated sessions for user {user_id}: {response.data}")
+            return True
+        except APIError as e:
+            logger.error(f"Error deactivating user sessions: {e}")
+            return False
+
+    async def update_chat_session_progress(self, session_id: str, completion_score: int, assessment_complete: bool) -> bool:
+        """Update chat session with assessment progress"""
+        if not self.is_connected():
+            return False
+        
+        try:
+            update_data = {
+                "completion_score": completion_score,
+                "assessment_complete": assessment_complete,
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            response = self.client.table('chat_sessions')\
+                .update(update_data)\
+                .eq('id', session_id)\
+                .execute()
+            
+            if response.data:
+                logger.info(f"Updated session {session_id} progress: score={completion_score}, complete={assessment_complete}")
+                return True
+            return False
+        except APIError as e:
+            logger.error(f"Error updating session progress: {e}")
+            return False
+
+    async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get user profile by email"""
+        if not self.is_connected():
+            logger.error(f"Cannot get user by email - database not connected")
+            return None
+        
+        try:
+            logger.info(f"Getting user profile by email: {email}")
+            response = self.client.table('user_profiles')\
+                .select('*')\
+                .eq('email', email)\
+                .execute()
+            
+            if response.data and len(response.data) > 0:
+                profile_data = response.data[0]
+                # Convert any datetime string fields to proper datetime objects
+                converted_profile = _convert_datetime_fields(profile_data)
+                return converted_profile
+            return None
+        except APIError as e:
+            logger.error(f"Error getting user by email: {e}")
+            return None
 
 # Global database instance
 db = SupabaseDB()

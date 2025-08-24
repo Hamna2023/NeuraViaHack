@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/authContext";
 import Link from "next/link";
-import { User, LogOut, LogIn, UserPlus } from "lucide-react";
+import { User, LogOut, LogIn, UserPlus, Settings } from "lucide-react";
 
 export function UserNav() {
 	const { user, signOut, loading } = useAuth();
@@ -20,7 +20,15 @@ export function UserNav() {
 			<div className="flex items-center space-x-4">
 				<div className="flex items-center space-x-2">
 					<User className="w-5 h-5 text-gray-600" />
-					<span className="text-sm text-gray-700">{user.email}</span>
+					<div className="text-sm">
+						<div className="text-gray-900 font-medium">{user.name}</div>
+						<div className="text-gray-500 text-xs">{user.email}</div>
+						{user.age && user.gender && (
+							<div className="text-gray-400 text-xs">
+								{user.age} years old • {user.gender}
+							</div>
+						)}
+					</div>
 				</div>
 				<button
 					onClick={signOut}

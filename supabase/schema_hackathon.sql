@@ -8,6 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.user_profiles (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
+    name TEXT,
     age INTEGER,
     gender TEXT CHECK (gender IN ('male', 'female', 'nonbinary', 'prefer_not_say')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -21,7 +22,9 @@ CREATE TABLE IF NOT EXISTS public.chat_sessions (
     session_name TEXT DEFAULT 'Chat Session',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    is_active BOOLEAN DEFAULT TRUE
+    is_active BOOLEAN DEFAULT TRUE,
+    assessment_complete BOOLEAN DEFAULT FALSE,
+    completion_score INTEGER DEFAULT 0 CHECK (completion_score >= 0 AND completion_score <= 100)
 );
 
 -- Chat messages table (FIXED: includes session_id)
@@ -82,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.patient_reports (
     follow_up_actions TEXT,
     collected_data JSONB DEFAULT '{}'::jsonb,
     hearing_results JSONB DEFAULT '{}'::jsonb,
+    user_context JSONB DEFAULT '{}'::jsonb,
     assessment_stage TEXT DEFAULT 'initial',
     is_complete BOOLEAN DEFAULT FALSE,
     generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -99,6 +103,8 @@ CREATE INDEX IF NOT EXISTS idx_symptoms_created_at ON public.symptoms(created_at
 CREATE INDEX IF NOT EXISTS idx_patient_reports_user_id ON public.patient_reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_patient_reports_session_id ON public.patient_reports(session_id);
 CREATE INDEX IF NOT EXISTS idx_patient_reports_created_at ON public.patient_reports(created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON public.chat_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_is_active ON public.chat_sessions(is_active);
 
 -- HACKATHON MODE: Disable Row Level Security for easier development
 -- This makes all tables accessible without strict authentication

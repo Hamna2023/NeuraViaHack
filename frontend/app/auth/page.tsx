@@ -14,6 +14,7 @@ export default function AuthPage() {
 	const [formData, setFormData] = useState({
 		email: "",
 		password: "",
+		name: "",
 		age: "",
 		gender: "",
 	});
@@ -60,15 +61,25 @@ export default function AuthPage() {
 					setTimeout(() => router.push("/"), 1000);
 				}
 			} else {
-				const { error } = await signUp(formData.email, formData.password, parseInt(formData.age), formData.gender);
+				// Validate required fields for signup
+				if (!formData.name || !formData.age || !formData.gender) {
+					setError("All fields are required for registration");
+					return;
+				}
+
+				const { error } = await signUp(
+					formData.email,
+					formData.password,
+					formData.name,
+					parseInt(formData.age),
+					formData.gender
+				);
+
 				if (error) {
 					setError(error.message);
 				} else {
-					setSuccess("Registration successful! Please check your email for verification.");
-					setTimeout(() => {
-						setIsLogin(true);
-						setFormData({ email: "", password: "", age: "", gender: "" });
-					}, 2000);
+					setSuccess("Account created successfully! Redirecting...");
+					setTimeout(() => router.push("/"), 1000);
 				}
 			}
 		} catch (error: any) {
@@ -82,7 +93,7 @@ export default function AuthPage() {
 		setIsLogin(!isLogin);
 		setError(null);
 		setSuccess(null);
-		setFormData({ email: "", password: "", age: "", gender: "" });
+		setFormData({ email: "", password: "", name: "", age: "", gender: "" });
 	};
 
 	return (
@@ -144,6 +155,21 @@ export default function AuthPage() {
 					{/* Extra fields only for Register */}
 					{!isLogin && (
 						<>
+							{/* Name */}
+							<div>
+								<label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+								<input
+									name="name"
+									type="text"
+									value={formData.name}
+									onChange={handleInputChange}
+									required
+									className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+									placeholder="Enter your full name"
+									disabled={isLoading}
+								/>
+							</div>
+
 							<div className="grid grid-cols-2 gap-4">
 								<div>
 									<label className="block text-sm font-medium text-gray-700 mb-2">Age</label>

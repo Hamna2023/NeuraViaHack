@@ -1,164 +1,68 @@
--- Safe Migration Script for NeuraVia
--- This script safely adds missing columns without affecting existing data
--- Run this AFTER running the main schema to ensure compatibility
+-- Migration script to safely add new fields to existing NeuraVia database
+-- This script can be run on existing databases without losing data
 
--- Check if detailed_results column exists in hearing_tests, add if missing
+-- Add name column to user_profiles table
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS name TEXT;
+
+-- Add assessment_complete column to chat_sessions table
+ALTER TABLE public.chat_sessions ADD COLUMN IF NOT EXISTS assessment_complete BOOLEAN DEFAULT FALSE;
+
+-- Add new fields to chat_sessions table if they don't exist
 DO $$ 
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'hearing_tests' 
-        AND column_name = 'detailed_results'
-    ) THEN
-        ALTER TABLE public.hearing_tests ADD COLUMN detailed_results JSONB DEFAULT '{}'::jsonb;
-        RAISE NOTICE 'Added detailed_results column to hearing_tests table';
-    ELSE
-        RAISE NOTICE 'detailed_results column already exists in hearing_tests table';
-    END IF;
-END $$;
-
--- Check if session_id column exists in chat_messages, add if missing
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'chat_messages' 
-        AND column_name = 'session_id'
-    ) THEN
-        ALTER TABLE public.chat_messages ADD COLUMN session_id UUID;
-        RAISE NOTICE 'Added session_id column to chat_messages table';
-    ELSE
-        RAISE NOTICE 'session_id column already exists in chat_messages table';
-    END IF;
-END $$;
-
--- Check if session_id column exists in chat_sessions, add if missing
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'chat_sessions' 
-        AND column_name = 'session_id'
-    ) THEN
-        ALTER TABLE public.chat_sessions ADD COLUMN session_id UUID;
-        RAISE NOTICE 'Added session_id column to chat_sessions table';
-    ELSE
-        RAISE NOTICE 'session_id column already exists in chat_sessions table';
-    END IF;
-END $$;
-
--- Check if metadata column exists in chat_messages, add if missing
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'chat_messages' 
-        AND column_name = 'metadata'
-    ) THEN
-        ALTER TABLE public.chat_messages ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
-        RAISE NOTICE 'Added metadata column to chat_messages table';
-    ELSE
-        RAISE NOTICE 'metadata column already exists in chat_messages table';
-    END IF;
-END $$;
-
--- Check if updated_at columns exist, add if missing
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'user_profiles' 
-        AND column_name = 'updated_at'
-    ) THEN
-        ALTER TABLE public.user_profiles ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-        RAISE NOTICE 'Added updated_at column to user_profiles table';
+    -- Add assessment_complete column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'chat_sessions' AND column_name = 'assessment_complete') THEN
+        ALTER TABLE public.chat_sessions ADD COLUMN assessment_complete BOOLEAN DEFAULT FALSE;
     END IF;
     
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'symptoms' 
-        AND column_name = 'updated_at'
-    ) THEN
-        ALTER TABLE public.symptoms ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-        RAISE NOTICE 'Added updated_at column to symptoms table';
-    END IF;
-    
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'chat_sessions' 
-        AND column_name = 'updated_at'
-    ) THEN
-        ALTER TABLE public.chat_sessions ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-        RAISE NOTICE 'Added updated_at column to chat_sessions table';
-    END IF;
-    
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'patient_reports' 
-        AND column_name = 'updated_at'
-    ) THEN
-        ALTER TABLE public.patient_reports ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-        RAISE NOTICE 'Added updated_at column to patient_reports table';
+    -- Add completion_score column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'chat_sessions' AND column_name = 'completion_score') THEN
+        ALTER TABLE public.chat_sessions ADD COLUMN completion_score INTEGER DEFAULT 0;
+        -- Add constraint after adding column
+        ALTER TABLE public.chat_sessions ADD CONSTRAINT check_completion_score 
+            CHECK (completion_score >= 0 AND completion_score <= 100);
     END IF;
 END $$;
 
--- Create missing indexes safely
-CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON public.chat_messages(user_id);
-CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON public.chat_messages(session_id);
-CREATE INDEX IF NOT EXISTS idx_chat_messages_timestamp ON public.chat_messages(timestamp);
-CREATE INDEX IF NOT EXISTS idx_hearing_tests_user_id ON public.hearing_tests(user_id);
-CREATE INDEX IF NOT EXISTS idx_symptoms_user_id ON public.symptoms(user_id);
-CREATE INDEX IF NOT EXISTS idx_symptoms_created_at ON public.symptoms(created_at);
-CREATE INDEX IF NOT EXISTS idx_patient_reports_user_id ON public.patient_reports(user_id);
-CREATE INDEX IF NOT EXISTS idx_patient_reports_session_id ON public.patient_reports(session_id);
-CREATE INDEX IF NOT EXISTS idx_patient_reports_created_at ON public.patient_reports(created_at);
+-- Add new fields to patient_reports table if they don't exist
+DO $$ 
+BEGIN
+    -- Add user_context column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'patient_reports' AND column_name = 'user_context') THEN
+        ALTER TABLE public.patient_reports ADD COLUMN user_context JSONB DEFAULT '{}'::jsonb;
+    END IF;
+END $$;
 
--- Disable RLS for hackathon mode (safe to run multiple times)
-ALTER TABLE public.user_profiles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_messages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.hearing_tests DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.symptoms DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_sessions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.patient_reports DISABLE ROW LEVEL SECURITY;
+-- Create new indexes if they don't exist
+DO $$ 
+BEGIN
+    -- Add chat_sessions user_id index if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_chat_sessions_user_id') THEN
+        CREATE INDEX idx_chat_sessions_user_id ON public.chat_sessions(user_id);
+    END IF;
+    
+    -- Add chat_sessions is_active index if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_chat_sessions_is_active') THEN
+        CREATE INDEX idx_chat_sessions_is_active ON public.chat_sessions(is_active);
+    END IF;
+END $$;
 
--- Grant permissions (safe to run multiple times)
+-- Update existing sessions to have default values
+UPDATE public.chat_sessions 
+SET assessment_complete = COALESCE(assessment_complete, FALSE),
+    completion_score = COALESCE(completion_score, 0)
+WHERE assessment_complete IS NULL OR completion_score IS NULL;
+
+-- Update existing reports to have default user_context
+UPDATE public.patient_reports 
+SET user_context = COALESCE(user_context, '{}'::jsonb)
+WHERE user_context IS NULL;
+
+-- Grant permissions to all users (hackathon mode)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO authenticated;
-
--- Create or replace the timestamp update function
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Create triggers safely (will fail if already exist, but that's okay)
-DO $$ 
-BEGIN
-    -- Drop existing triggers if they exist
-    DROP TRIGGER IF EXISTS update_user_profiles_updated_at ON public.user_profiles;
-    DROP TRIGGER IF EXISTS update_symptoms_updated_at ON public.symptoms;
-    DROP TRIGGER IF EXISTS update_chat_sessions_updated_at ON public.chat_sessions;
-    DROP TRIGGER IF EXISTS update_patient_reports_updated_at ON public.patient_reports;
-    
-    -- Create new triggers
-    CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON public.user_profiles
-        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-    
-    CREATE TRIGGER update_symptoms_updated_at BEFORE UPDATE ON public.symptoms
-        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-    
-    CREATE TRIGGER update_chat_sessions_updated_at BEFORE UPDATE ON public.chat_sessions
-        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-    
-    CREATE TRIGGER update_patient_reports_updated_at BEFORE UPDATE ON public.patient_reports
-        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-    
-    RAISE NOTICE 'All triggers created successfully';
-END $$;
-
-RAISE NOTICE 'Migration completed successfully! All tables are now compatible with the new schema.';

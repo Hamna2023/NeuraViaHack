@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
 from app.database import db
+from app.pydantic_config import get_model_config
 import uuid
 from datetime import datetime
 
@@ -31,12 +32,7 @@ class PatientReportResponse(PatientReportBase):
     created_at: datetime
     updated_at: datetime
     
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
-    )
+    model_config = get_model_config()
 
 class PatientReportUpdate(BaseModel):
     executive_summary: Optional[str] = None

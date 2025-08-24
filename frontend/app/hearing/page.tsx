@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/authContext";
 import { useRouter } from "next/navigation";
 import { Headphones, Play, Pause, Volume2, VolumeX, CheckCircle, AlertCircle, Loader2, FileText } from "lucide-react";
@@ -329,6 +329,7 @@ export default function HearingTestPage() {
 
 							<div>
 								<h2 className="text-2xl font-bold text-gray-900 mb-4">Before You Begin</h2>
+
 								<div className="text-left max-w-2xl mx-auto space-y-3 text-gray-600">
 									<div className="flex items-start space-x-3">
 										<div className="w-2 h-2 bg-purple-600 rounded-full mt-2 flex-shrink-0"></div>

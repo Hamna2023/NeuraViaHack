@@ -80,7 +80,7 @@ export default function Home() {
 				<div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
 					<div className="flex items-center justify-between">
 						<div>
-							<h1 className="text-3xl font-bold text-gray-900">Welcome back, {user.email?.split("@")[0]}! 👋</h1>
+							<h1 className="text-3xl font-bold text-gray-900">Welcome back, {user.name || "Patient"}! 👋</h1>
 							<p className="text-gray-600 mt-2">Ready to continue your health journey? Choose your next step below.</p>
 						</div>
 						<div className="bg-blue-100 p-4 rounded-full">

@@ -1,317 +1,212 @@
-# 🧠 NeuraVia - AI-Powered Neurological Health Assessment Platform
+# NeuraVia - AI-Powered Neurological Health Assessment Platform
 
-NeuraVia is a comprehensive healthcare platform that combines AI-powered medical assessments, interactive hearing tests, and comprehensive patient reporting to provide personalized neurological health insights.
+A comprehensive healthcare platform that provides AI-driven neurological assessments, symptom tracking, hearing evaluations, and personalized medical reports.
 
-## ✨ Features
+## 🚀 New Features (Latest Update)
 
-### 🔐 **Authentication & User Management**
+### Enhanced AI Assessment System
 
-- Secure user registration and login with Supabase
-- User profile management with age and gender tracking
-- Session management and authentication state
+- **Smart Assessment Completion**: AI now intelligently determines when an assessment is complete based on information quality, not just message count
+- **Personalized Chat Experience**: AI incorporates user context (age, gender, existing symptoms, hearing status) for tailored assessments
+- **Progress Tracking**: Real-time assessment progress with visual indicators and stage-based guidance
+- **Session Management**: Users can only have one active assessment at a time, ensuring focused evaluations
 
-### 📝 **Symptom Management**
+### Improved Report Generation
 
-- Interactive symptom reporting with severity scales (1-10)
-- Duration tracking and detailed descriptions
-- Batch symptom submission for comprehensive health tracking
+- **Quality Threshold**: Reports are only generated when sufficient information is collected (85%+ completion score)
+- **Rich Content**: Reports now include user context, collected data, and comprehensive markdown-formatted content
+- **Professional Formatting**: Raw markdown is converted to beautiful, readable HTML with proper styling
+- **Data Integration**: Seamless integration of symptoms, hearing tests, and medical history
 
-### 🤖 **AI Medical Assessment**
+### Better User Experience
 
-- Intelligent AI medical attendant using Google Gemini
-- Structured neurological assessment conversations
-- Progressive data collection and analysis
-- Session management for ongoing assessments
-
-### 🎧 **Interactive Hearing Tests**
-
-- Comprehensive frequency testing (125Hz - 8000Hz)
-- Left and right ear evaluation
-- Volume-controlled testing with real-time feedback
-- Detailed results and recommendations
-
-### 📊 **Comprehensive Reports**
-
-- AI-generated medical reports with criticality ratings
-- Symptom analysis and risk assessment
-- Hearing test integration and recommendations
-- Follow-up action planning
+- **Chat Locking**: Chat is locked after assessment completion to prevent confusion
+- **New Assessment Flow**: Users must start new sessions for new assessments, ensuring clean data separation
+- **Visual Progress**: Color-coded progress bars and stage indicators throughout the assessment
+- **Context Awareness**: User profile information is displayed and utilized during assessments
 
 ## 🏗️ Architecture
 
-### **Frontend (Next.js 15 + TypeScript)**
+### Backend (FastAPI + Supabase)
 
-- Modern React with TypeScript for type safety
-- Tailwind CSS for beautiful, responsive UI
-- Authentication context for state management
-- Real-time chat interface for AI assessments
+- **AI Service**: Enhanced with completion scoring and user context integration
+- **Chat Router**: Improved session management and assessment logic
+- **Database**: Updated schema with assessment completion tracking
+- **User Context**: Comprehensive user profile and history gathering
 
-### **Backend (FastAPI + Python)**
+### Frontend (Next.js + TypeScript)
 
-- High-performance async API with FastAPI
-- Supabase integration for database and auth
-- Google Gemini AI integration for medical assessments
-- Structured data models and validation
+- **Chat Interface**: Enhanced with progress tracking and completion logic
+- **Report Viewer**: Beautiful markdown rendering with user context display
+- **Session Management**: Improved session switching and new assessment creation
+- **Progress Indicators**: Visual feedback throughout the assessment process
 
-### **Database (Supabase + PostgreSQL)**
+## 🔧 Technical Implementation
 
-- Secure user profiles and authentication
-- Comprehensive health data storage
-- Row-level security (RLS) policies
-- Real-time data synchronization
+### Assessment Completion Logic
 
-## 🚀 Quick Start
+```typescript
+// AI determines completion based on:
+- Symptom collection quality (25 points)
+- Medical history depth (20 points)
+- Risk factor assessment (15 points)
+- Hearing concerns (15 points)
+- Impact assessment (15 points)
+- Medications and family history (20 points)
+- Minimum 85% completion required
+```
 
-### **Prerequisites**
+### User Context Integration
+
+```typescript
+// AI receives comprehensive user context:
+- Age and gender for personalized questions
+- Existing symptoms for continuity
+- Hearing test results for auditory assessment
+- Previous assessment history
+- Medical background information
+```
+
+### Markdown Rendering
+
+```typescript
+// Converts AI-generated markdown to HTML:
+- Headers (H1, H2, H3) with proper styling
+- Bold and italic text formatting
+- Bullet points and numbered lists
+- Paragraph breaks and spacing
+- Professional medical report appearance
+```
+
+## 📊 Database Schema Updates
+
+### New Fields Added
+
+- `chat_sessions.assessment_complete` - Boolean flag for completion status
+- `chat_sessions.completion_score` - Integer score (0-100) for progress tracking
+- `patient_reports.user_context` - JSONB field for user information storage
+
+### Indexes for Performance
+
+- `idx_chat_sessions_user_id` - Fast user session lookup
+- `idx_chat_sessions_is_active` - Quick active session identification
+
+## 🚀 Getting Started
+
+### Prerequisites
 
 - Node.js 18+ and npm
-- Python 3.8+
-- Supabase account
-- Google Gemini API key
+- Python 3.8+ and pip
+- Supabase account and project
+- Gemini API key for AI features
 
-### **1. Clone and Setup**
+### Installation
+
+1. **Clone the repository**
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/your-username/NeuraViaHack.git
 cd NeuraViaHack
 ```
 
-### **2. Backend Setup**
+2. **Backend Setup**
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Create environment file
-cp env.example .env
-# Edit .env with your credentials
 ```
 
-### **3. Frontend Setup**
+3. **Frontend Setup**
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Create environment file
-cp env.local.example .env.local
-# Edit .env.local with your credentials
 ```
 
-### **4. Environment Configuration**
+4. **Environment Configuration**
 
-#### **Backend (.env)**
-
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_KEY=your_supabase_service_key
+```bash
+# Backend (.env)
 GEMINI_API_KEY=your_gemini_api_key
-APP_ENV=development
-DEBUG=true
-```
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_KEY=your_supabase_service_key
 
-#### **Frontend (.env.local)**
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+# Frontend (.env.local)
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-### **5. Database Setup**
+5. **Database Setup**
 
 ```bash
-# Run the Supabase schema
-# Copy schema.sql content to your Supabase SQL editor
-# Execute the schema to create tables and policies
+# Run the main schema
+psql -h your_host -U your_user -d your_db -f supabase/schema_hackathon.sql
+
+# Run migration if updating existing database
+psql -h your_host -U your_user -d your_db -f supabase/migration_safe.sql
 ```
 
-### **6. Start the Application**
+6. **Start Services**
 
 ```bash
-# Terminal 1 - Backend
+# Backend
 cd backend
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload
 
-# Terminal 2 - Frontend
+# Frontend
 cd frontend
 npm run dev
 ```
 
-Visit `http://localhost:3000` to access the application!
+## 🔄 Migration Guide
 
-## 🔄 User Flow
+If you have an existing NeuraVia database, run the migration script:
 
-### **1. Authentication**
-
-- User visits the application
-- Signs up with email, password, age, and gender
-- Creates secure user profile in Supabase
-
-### **2. Symptom Reporting**
-
-- User navigates to Symptoms page
-- Reports detailed symptoms with severity levels
-- Adds duration and descriptions for each symptom
-- Submits comprehensive symptom data
-
-### **3. AI Medical Assessment**
-
-- User starts AI assessment from Chat page
-- AI medical attendant conducts structured interview
-- Progressive data collection through conversation
-- Assessment completion with comprehensive data
-
-### **4. Hearing Test (Optional)**
-
-- User can take interactive hearing assessment
-- Tests multiple frequencies for both ears
-- Volume-controlled testing with real-time feedback
-- Results integrated with overall health assessment
-
-### **5. Report Generation**
-
-- AI generates comprehensive medical report
-- Includes symptom analysis, risk assessment, and recommendations
-- Hearing test results integrated when available
-- Criticality ratings and follow-up actions
-
-### **6. Health Dashboard**
-
-- Comprehensive overview of all health data
-- Symptom tracking and history
-- Hearing test results and trends
-- AI assessment reports and recommendations
-
-## 🛠️ Development
-
-### **Project Structure**
-
-```
-NeuraViaHack/
-├── backend/                 # FastAPI backend
-│   ├── app/
-│   │   ├── routers/        # API endpoints
-│   │   ├── ai_service.py   # Google Gemini integration
-│   │   ├── database.py     # Supabase database operations
-│   │   └── main.py         # FastAPI application
-│   ├── requirements.txt    # Python dependencies
-│   └── env.example        # Environment template
-├── frontend/               # Next.js frontend
-│   ├── app/               # App router pages
-│   ├── components/        # Reusable components
-│   ├── lib/               # Utilities and contexts
-│   ├── package.json       # Node dependencies
-│   └── env.local.example  # Environment template
-├── supabase/              # Database schema
-│   └── schema.sql         # PostgreSQL schema
-└── README.md              # This file
+```bash
+psql -h your_host -U your_user -d your_db -f supabase/migration_safe.sql
 ```
 
-### **Key Components**
+This will safely add new fields without affecting existing data.
 
-#### **Frontend Components**
+## 📱 Usage
 
-- `AuthProvider`: Authentication context and state management
-- `UserNav`: User navigation and authentication controls
-- `SymptomForm`: Interactive symptom reporting interface
-- `ChatInterface`: AI medical assessment chat
-- `HearingTest`: Interactive hearing assessment
-- `ReportsDashboard`: Comprehensive health overview
+### Starting an Assessment
 
-#### **Backend Services**
+1. Navigate to `/chat`
+2. The AI will guide you through a comprehensive assessment
+3. Progress is tracked in real-time with visual indicators
+4. Assessment completion is determined by AI analysis
 
-- `AIService`: Google Gemini integration for medical assessments
-- `SupabaseDB`: Database operations and data management
-- `Routers`: RESTful API endpoints for all functionality
+### Generating Reports
 
-### **API Endpoints**
+1. Complete the assessment (85%+ completion required)
+2. Click "Generate Report" when available
+3. View beautifully formatted reports with user context
+4. Access reports from the `/reports` page
 
-#### **Authentication & Users**
+### Session Management
 
-- `POST /api/users/profile` - Create user profile
-- `GET /api/users/profile/{user_id}` - Get user profile
-- `PUT /api/users/profile/{user_id}` - Update user profile
-
-#### **Symptoms**
-
-- `POST /api/symptoms/batch` - Create multiple symptoms
-- `GET /api/symptoms/user/{user_id}` - Get user symptoms
-- `DELETE /api/symptoms/{symptom_id}` - Delete symptom
-
-#### **AI Chat & Assessment**
-
-- `POST /api/chat/session` - Create chat session
-- `POST /api/chat/send` - Send message to AI
-- `GET /api/chat/sessions/{user_id}` - Get user sessions
-- `POST /api/chat/generate-report/{session_id}` - Generate report
-
-#### **Hearing Tests**
-
-- `POST /api/hearing/test` - Create hearing test
-- `GET /api/hearing/user/{user_id}` - Get user tests
-- `GET /api/hearing/user/{user_id}/summary` - Get hearing summary
-
-#### **Patient Reports**
-
-- `GET /api/reports/user/{user_id}` - Get user reports
-- `GET /api/reports/{report_id}` - Get specific report
-- `PUT /api/reports/{report_id}` - Update report
-
-## 🔒 Security Features
-
-- **Row-Level Security (RLS)**: Users can only access their own data
-- **JWT Authentication**: Secure token-based authentication
-- **Input Validation**: Comprehensive data validation with Pydantic
-- **CORS Protection**: Configured CORS policies for security
-- **Environment Variables**: Secure credential management
+- Only one active assessment per user
+- Start new assessments for new evaluations
+- Previous sessions are preserved and accessible
+- Chat is locked after completion
 
 ## 🧪 Testing
 
-### **Backend Testing**
+### Backend Tests
 
 ```bash
 cd backend
-# Run tests (when implemented)
-pytest
+pytest tests/
 ```
 
-### **Frontend Testing**
+### Frontend Tests
 
 ```bash
 cd frontend
-# Run tests (when implemented)
 npm test
 ```
-
-## 🚀 Deployment
-
-### **Backend Deployment**
-
-- Deploy to platforms like Railway, Render, or Heroku
-- Set environment variables in deployment platform
-- Ensure CORS origins are updated for production
-
-### **Frontend Deployment**
-
-- Build and deploy to Vercel, Netlify, or similar
-- Update environment variables for production
-- Configure domain and SSL certificates
-
-### **Database Deployment**
-
-- Use Supabase production instance
-- Configure backup and monitoring
-- Set up proper security policies
 
 ## 🤝 Contributing
 
@@ -321,7 +216,7 @@ npm test
 4. Add tests if applicable
 5. Submit a pull request
 
-## 📝 License
+## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
@@ -329,19 +224,19 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 For support and questions:
 
-- Create an issue in the repository
-- Check the documentation
-- Review the code examples
+- Create an issue in the GitHub repository
+- Check the documentation in the `/docs` folder
+- Review the migration guide for database updates
 
 ## 🔮 Future Enhancements
 
-- **Mobile App**: React Native mobile application
-- **Telemedicine Integration**: Video consultation features
-- **Advanced AI Models**: Integration with medical AI models
-- **Data Analytics**: Advanced health insights and trends
-- **Integration APIs**: Connect with other health platforms
-- **Multi-language Support**: Internationalization features
+- **Multi-language Support**: Internationalization for global users
+- **Advanced Analytics**: Detailed assessment analytics and trends
+- **Integration APIs**: Connect with external healthcare systems
+- **Mobile App**: Native mobile applications for iOS and Android
+- **Telemedicine**: Video consultation integration
+- **AI Training**: Continuous improvement of assessment algorithms
 
 ---
 
-**Built with ❤️ for better healthcare through technology**
+**NeuraVia** - Empowering neurological health through AI-driven assessments and personalized care.

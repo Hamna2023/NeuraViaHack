@@ -5,6 +5,7 @@ from datetime import datetime
 import uuid
 import logging
 from app.database import db
+from app.pydantic_config import get_model_config
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +56,7 @@ class SymptomResponse(SymptomBase):
     created_at: datetime
     updated_at: datetime
     
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
-    )
+    model_config = get_model_config()
 
 class BatchSymptomCreate(BaseModel):
     symptoms: List[SymptomCreate]

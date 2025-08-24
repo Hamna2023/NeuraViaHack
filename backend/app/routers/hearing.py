@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
 from typing import List, Optional, Dict, Any, Union
 from app.database import db
+from app.pydantic_config import get_model_config
 import uuid
 from datetime import datetime
 
@@ -42,12 +43,7 @@ class HearingTestResponse(HearingTestBase):
     id: str
     created_at: datetime
     
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={
-            datetime: lambda v: v.isoformat() if v else None
-        }
-    )
+    model_config = get_model_config()
 
 class HearingTestUpdate(BaseModel):
     left_ear_score: Optional[int] = None
@@ -66,6 +62,25 @@ async def create_hearing_test(test: HearingTestCreate):
         
         if test.left_ear_score is None or test.right_ear_score is None:
             raise HTTPException(status_code=422, detail="Both left_ear_score and right_ear_score are required")
+        
+        # Check if user profile exists, if not create one
+        user_profile = await db.get_user_profile(test.user_id)
+        if not user_profile:
+            # Try to get user info from Supabase Auth metadata
+            # For now, create a basic profile with placeholder data
+            # In production, you might want to get this from the JWT token or make a separate call
+            try:
+                await db.create_user_profile(
+                    user_id=test.user_id,
+                    email=f"user_{test.user_id[:8]}@example.com",  # Placeholder email
+                    name=None,  # Will be updated when user provides name
+                    age=None,
+                    gender=None
+                )
+                print(f"Created user profile for {test.user_id}")
+            except Exception as profile_error:
+                print(f"Warning: Could not create user profile for {test.user_id}: {profile_error}")
+                # Continue anyway, the hearing test creation might still work
         
         test_data = test.model_dump()  # Use model_dump() instead of .dict() for Pydantic v2
         test_data['id'] = str(uuid.uuid4())
