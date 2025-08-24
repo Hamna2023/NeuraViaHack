@@ -13,6 +13,9 @@ class Settings:
     # Database Configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     
+    # Gemini AI Configuration
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    
     # App Configuration
     APP_ENV: str = os.getenv("APP_ENV", "development")
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"

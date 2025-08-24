@@ -1,119 +1,163 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, validator, Field, ConfigDict
 from typing import List, Optional
-import datetime
+from datetime import datetime
+import uuid
+import logging
 from app.database import db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# -----------------------
-# MODELS
-# -----------------------
-
-class Symptom(BaseModel):
-    id: Optional[str] = None
-    user_id: str
-    symptom_name: str
-    severity: int  # 1-10 scale
-    description: Optional[str] = None
-    timestamp: Optional[datetime.datetime] = None
-    category: str  # e.g., "neurological", "hearing", "vision"
-
-class SymptomReport(BaseModel):
-    user_id: str
-    total_symptoms: int
-    average_severity: float
-    most_common: str
-    recommendation: str
-
-class SymptomForm(BaseModel):
-    user_id: str
-    symptoms: List[Symptom]
-
-
-# -----------------------
-# ROUTES
-# -----------------------
-
-@router.post("/add", response_model=Symptom)
-async def add_symptom(symptom: Symptom):
-    symptom.timestamp = datetime.datetime.now()
-
-    # Try saving to database
-    symptom_data = symptom.dict()
-    saved_symptom = await db.add_symptom(symptom_data)
-
-    if saved_symptom:
-        return Symptom(**saved_symptom)
-    else:
-        # Fallback if db fails
-        symptom.id = f"symptom_{datetime.datetime.now().timestamp()}"
-        return symptom
-
-
-@router.post("/add_batch")
-async def add_multiple_symptoms(form: SymptomForm):
-    saved = []
-    for s in form.symptoms:
-        s.timestamp = datetime.datetime.now()
-        symptom_data = s.dict()
-        saved_symptom = await db.add_symptom(symptom_data)
-
-        if saved_symptom:
-            saved.append(saved_symptom)
-        else:
-            # Fallback if db fails
-            s.id = f"symptom_{datetime.datetime.now().timestamp()}"
-            saved.append(s.dict())
-
-    return {
-        "message": "Batch added successfully",
-        "count": len(saved),
-        "data": saved
-    }
-
-
-@router.get("/user/{user_id}", response_model=List[Symptom])
-async def get_user_symptoms(user_id: str):
-    symptoms_data = await db.get_user_symptoms(user_id)
-    return [Symptom(**symptom) for symptom in symptoms_data]
-
-
-@router.get("/report/{user_id}", response_model=SymptomReport)
-async def get_symptom_report(user_id: str):
-    user_symptoms = await db.get_user_symptoms(user_id)
-
-    if not user_symptoms:
-        raise HTTPException(status_code=404, detail="No symptoms found for user")
-
-    total_symptoms = len(user_symptoms)
-    average_severity = sum(s['severity'] for s in user_symptoms) / total_symptoms
-
-    # Find most common category
-    categories = [s['category'] for s in user_symptoms]
-    most_common = max(set(categories), key=categories.count)
-
-    # Recommendation logic
-    if average_severity < 3:
-        recommendation = "Symptoms are mild. Continue monitoring."
-    elif average_severity < 7:
-        recommendation = "Moderate symptoms. Consider consulting a healthcare provider."
-    else:
-        recommendation = "Severe symptoms. Seek immediate medical attention."
-
-    return SymptomReport(
-        user_id=user_id,
-        total_symptoms=total_symptoms,
-        average_severity=round(average_severity, 2),
-        most_common=most_common,
-        recommendation=recommendation
+class SymptomBase(BaseModel):
+    symptom_name: str = Field(..., description="Name of the symptom")
+    severity: int = Field(..., ge=1, le=10, description="Severity level from 1-10")
+    description: Optional[str] = Field(None, description="Detailed description of the symptom")
+    duration_days: int = Field(..., ge=1, description="Duration of symptoms in days")
+    location: Optional[str] = Field(None, description="Location of the symptom on the body")
+    triggers: Optional[List[str]] = Field(None, description="Things that trigger or worsen the symptom")
+    alleviators: Optional[List[str]] = Field(None, description="Things that help alleviate the symptom")
+    associated_symptoms: Optional[List[str]] = Field(None, description="Other symptoms that occur with this one")
+    impact_on_daily_life: Optional[str] = Field(None, description="How the symptom affects daily activities")
+    
+    @validator('symptom_name')
+    def validate_symptom_name(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Symptom name cannot be empty')
+        return v.strip().lower()
+    
+    @validator('duration_days')
+    def validate_duration(cls, v):
+        if v < 1:
+            raise ValueError('Duration must be at least 1 day')
+        return v
+    
+    model_config = ConfigDict(
+        schema_extra={
+            "example": {
+                "symptom_name": "headache",
+                "severity": 5,
+                "description": "Pain in the left side of head",
+                "duration_days": 2
+            }
+        }
     )
 
+class SymptomCreate(SymptomBase):
+    user_id: str
 
-@router.delete("/{symptom_id}")
-async def delete_symptom(symptom_id: str):
-    success = await db.delete_symptom(symptom_id)
-    if success:
-        return {"message": "Symptom deleted successfully"}
-    else:
-        raise HTTPException(status_code=404, detail="Symptom not found")
+class SymptomResponse(SymptomBase):
+    id: str
+    user_id: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: v.isoformat() if v else None
+        }
+    )
+
+class BatchSymptomCreate(BaseModel):
+    symptoms: List[SymptomCreate]
+
+@router.post("/batch", response_model=List[SymptomResponse])
+async def create_symptoms_batch(batch: BatchSymptomCreate):
+    """Create multiple symptoms in batch"""
+    try:
+        created_symptoms = []
+        now_iso = datetime.now().isoformat()
+        for symptom_data in batch.symptoms:
+            # Add ID and timestamps as ISO strings to avoid JSON serialization issues
+            symptom_data_dict = symptom_data.dict()
+            symptom_data_dict['id'] = str(uuid.uuid4())
+            symptom_data_dict['created_at'] = now_iso
+            symptom_data_dict['updated_at'] = now_iso
+
+            created_symptom = await db.add_symptom(symptom_data_dict)
+            if created_symptom:
+                # Convert datetime fields to ISO strings if necessary
+                if isinstance(created_symptom.get('created_at'), datetime):
+                    created_symptom['created_at'] = created_symptom['created_at'].isoformat()
+                if isinstance(created_symptom.get('updated_at'), datetime):
+                    created_symptom['updated_at'] = created_symptom['updated_at'].isoformat()
+                created_symptoms.append(created_symptom)
+
+        return [SymptomResponse(**symptom) for symptom in created_symptoms]
+    except ValueError as e:
+        # Handle validation errors specifically
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create symptoms: {str(e)}")
+
+@router.post("/", response_model=SymptomResponse)
+async def create_symptom(symptom: SymptomCreate):
+    """Create a new symptom"""
+    try:
+        symptom_data = symptom.dict()
+        symptom_data['id'] = str(uuid.uuid4())
+        # Use ISO format strings for datetime fields to avoid JSON serialization issues
+        now_iso = datetime.now().isoformat()
+        symptom_data['created_at'] = now_iso
+        symptom_data['updated_at'] = now_iso
+
+        created_symptom = await db.add_symptom(symptom_data)
+        if created_symptom:
+            # If the DB returns datetime objects, convert them to ISO strings for the response
+            if isinstance(created_symptom.get('created_at'), datetime):
+                created_symptom['created_at'] = created_symptom['created_at'].isoformat()
+            if isinstance(created_symptom.get('updated_at'), datetime):
+                created_symptom['updated_at'] = created_symptom['updated_at'].isoformat()
+            return SymptomResponse(**created_symptom)
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create symptom")
+    except ValueError as e:
+        # Handle validation errors specifically
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/user/{user_id}", response_model=List[SymptomResponse])
+async def get_user_symptoms(user_id: str):
+    """Get all symptoms for a specific user"""
+    try:
+        symptoms = await db.get_user_symptoms(user_id)
+        return [SymptomResponse(**symptom) for symptom in symptoms]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# @router.get("/{symptom_id}", response_model=SymptomResponse)
+# async def get_symptom(symptom_id: str):
+#     """Get a specific symptom by ID"""
+#     try:
+#         # This would require adding a get_symptom_by_id method to the database
+#         # For now, we'll get all user symptoms and filter
+#         # In production, implement proper individual symptom retrieval
+#         raise HTTPException(status_code=501, detail="Individual symptom retrieval not implemented")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# @router.put("/{symptom_id}", response_model=SymptomResponse)
+# async def update_symptom(symptom_id: str, symptom_update: SymptomBase):
+#     """Update a symptom"""
+#     try:
+#         # This would require adding an update_symptom method to the database
+#         # For now, we'll return an error
+#         raise HTTPException(status_code=501, detail="Symptom update not implemented")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# @router.delete("/{symptom_id}")
+# async def delete_symptom(symptom_id: str):
+#     """Delete a symptom"""
+#     try:
+#         success = await db.delete_symptom(symptom_id)
+#         if success:
+#             return {"message": "Symptom deleted successfully"}
+#         else:
+#             raise HTTPException(status_code=404, detail="Symptom not found")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
