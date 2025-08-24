@@ -15,11 +15,12 @@ class SymptomBase(BaseModel):
     severity: int = Field(..., ge=1, le=10, description="Severity level from 1-10")
     description: Optional[str] = Field(None, description="Detailed description of the symptom")
     duration_days: int = Field(..., ge=1, description="Duration of symptoms in days")
-    location: Optional[str] = Field(None, description="Location of the symptom on the body")
-    triggers: Optional[List[str]] = Field(None, description="Things that trigger or worsen the symptom")
-    alleviators: Optional[List[str]] = Field(None, description="Things that help alleviate the symptom")
-    associated_symptoms: Optional[List[str]] = Field(None, description="Other symptoms that occur with this one")
-    impact_on_daily_life: Optional[str] = Field(None, description="How the symptom affects daily activities")
+    # Note: These fields are commented out until the database schema is updated
+    # location: Optional[str] = Field(None, description="Location of the symptom on the body")
+    # triggers: Optional[List[str]] = Field(None, description="Things that trigger or worsen the symptom")
+    # alleviators: Optional[List[str]] = Field(None, description="Things that help alleviate the symptom")
+    # associated_symptoms: Optional[List[str]] = Field(None, description="Other symptoms that occur with this one")
+    # impact_on_daily_life: Optional[str] = Field(None, description="How the symptom affects daily activities")
     
     @validator('symptom_name')
     def validate_symptom_name(cls, v):

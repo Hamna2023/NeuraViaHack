@@ -1,7 +1,7 @@
 # backend/app/routers/hearing.py
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict, field_validator
+from typing import List, Optional, Dict, Any, Union
 from app.database import db
 import uuid
 from datetime import datetime
@@ -10,13 +10,30 @@ router = APIRouter()
 
 class HearingTestBase(BaseModel):
     user_id: str
-    test_date: Optional[datetime] = None
+    test_date: Optional[Union[datetime, str]] = None
     left_ear_score: Optional[int] = None
     right_ear_score: Optional[int] = None
     overall_score: Optional[int] = None
     test_type: str = "comprehensive"
     notes: Optional[str] = None
-    detailed_results: Optional[Dict[str, Any]] = None
+    detailed_results: Optional[List[Dict[str, Any]]] = None
+    
+    model_config = ConfigDict(
+        from_attributes=True,
+        extra="ignore",  # Ignore extra fields
+        validate_assignment=True,
+        populate_by_name=True
+    )
+    
+    @field_validator('test_date', mode='before')
+    @classmethod
+    def validate_test_date(cls, v):
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.replace('Z', '+00:00'))
+            except ValueError:
+                return v
+        return v
 
 class HearingTestCreate(HearingTestBase):
     pass
@@ -37,13 +54,20 @@ class HearingTestUpdate(BaseModel):
     right_ear_score: Optional[int] = None
     overall_score: Optional[int] = None
     notes: Optional[str] = None
-    detailed_results: Optional[Dict[str, Any]] = None
+    detailed_results: Optional[List[Dict[str, Any]]] = None
 
 @router.post("/test", response_model=HearingTestResponse)
 async def create_hearing_test(test: HearingTestCreate):
     """Create a new hearing test"""
     try:
-        test_data = test.dict()
+        # Validate the data before processing
+        if not test.user_id:
+            raise HTTPException(status_code=422, detail="user_id is required")
+        
+        if test.left_ear_score is None or test.right_ear_score is None:
+            raise HTTPException(status_code=422, detail="Both left_ear_score and right_ear_score are required")
+        
+        test_data = test.model_dump()  # Use model_dump() instead of .dict() for Pydantic v2
         test_data['id'] = str(uuid.uuid4())
         # Use ISO format string for created_at to avoid JSON serialization issues
         test_data['created_at'] = datetime.now().isoformat()
@@ -56,6 +80,10 @@ async def create_hearing_test(test: HearingTestCreate):
         if test_data['left_ear_score'] is not None and test_data['right_ear_score'] is not None:
             test_data['overall_score'] = (test_data['left_ear_score'] + test_data['right_ear_score']) // 2
 
+        # Check database connection
+        if not db.is_connected():
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
         created_test = await db.add_hearing_test(test_data)
         if created_test:
             # Convert any datetime fields in the response to ISO strings
@@ -66,8 +94,10 @@ async def create_hearing_test(test: HearingTestCreate):
             return HearingTestResponse(**created_test)
         else:
             raise HTTPException(status_code=500, detail="Failed to create hearing test")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/user/{user_id}", response_model=List[HearingTestResponse])
 async def get_user_hearing_tests(user_id: str):

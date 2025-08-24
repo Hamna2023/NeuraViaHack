@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS public.hearing_tests (
     overall_score INTEGER CHECK (overall_score >= 0 AND overall_score <= 100),
     test_type TEXT DEFAULT 'standard',
     notes TEXT,
+    detailed_results JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -57,6 +58,11 @@ CREATE TABLE IF NOT EXISTS public.symptoms (
     severity INTEGER CHECK (severity >= 1 AND severity <= 10),
     description TEXT,
     duration_days INTEGER,
+    location TEXT,
+    triggers TEXT[],
+    alleviators TEXT[],
+    associated_symptoms TEXT[],
+    impact_on_daily_life TEXT,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

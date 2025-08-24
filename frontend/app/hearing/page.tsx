@@ -204,6 +204,12 @@ export default function HearingTestPage() {
 	const submitResults = async () => {
 		if (!user || testResults.length === 0) return;
 
+		// Validate user ID
+		if (!user.id) {
+			setMessage({ type: "error", text: "User ID not found. Please log in again." });
+			return;
+		}
+
 		setIsSubmitting(true);
 		setMessage(null);
 
@@ -230,7 +236,14 @@ export default function HearingTestPage() {
 				detailed_results: testResults,
 			};
 
-			const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/hearing/test`, {
+			// Debug logging
+			console.log("Sending test data:", testData);
+			console.log("User ID:", user.id);
+			console.log("User object:", user);
+			console.log("API URL:", process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
+
+			const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+			const response = await fetch(`${apiUrl}/api/hearing/test`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(testData),
@@ -243,7 +256,20 @@ export default function HearingTestPage() {
 				}, 2000);
 			} else {
 				const errorData = await response.json();
-				setMessage({ type: "error", text: errorData.detail || "Failed to save results" });
+				console.error("Error response:", errorData);
+				// Handle different error response formats
+				let errorMessage = "Failed to save results";
+				if (errorData.detail) {
+					if (Array.isArray(errorData.detail)) {
+						// Handle validation errors array
+						errorMessage = errorData.detail.map((err: any) => err.msg || "Validation error").join(", ");
+					} else if (typeof errorData.detail === "string") {
+						errorMessage = errorData.detail;
+					} else {
+						errorMessage = "Validation error occurred";
+					}
+				}
+				setMessage({ type: "error", text: errorMessage });
 			}
 		} catch (error) {
 			console.error("Error saving results:", error);

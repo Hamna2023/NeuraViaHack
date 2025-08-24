@@ -2,6 +2,21 @@
 -- This script safely adds missing columns without affecting existing data
 -- Run this AFTER running the main schema to ensure compatibility
 
+-- Check if detailed_results column exists in hearing_tests, add if missing
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'hearing_tests' 
+        AND column_name = 'detailed_results'
+    ) THEN
+        ALTER TABLE public.hearing_tests ADD COLUMN detailed_results JSONB DEFAULT '{}'::jsonb;
+        RAISE NOTICE 'Added detailed_results column to hearing_tests table';
+    ELSE
+        RAISE NOTICE 'detailed_results column already exists in hearing_tests table';
+    END IF;
+END $$;
+
 -- Check if session_id column exists in chat_messages, add if missing
 DO $$ 
 BEGIN
