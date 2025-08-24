@@ -11,6 +11,7 @@ interface HearingTestResult {
 	leftEar: number;
 	rightEar: number;
 	threshold: number;
+
 }
 
 interface TestPhase {
@@ -147,32 +148,25 @@ export default function HearingTestPage() {
 
 	const handleHearTone = (heard: boolean) => {
 		if (!currentPhase) return;
-
+	
+		// Save result as 1 if heard, 0 if not
 		const result: HearingTestResult = {
 			frequency: currentPhase.currentFrequency,
-			leftEar: currentPhase.currentEar === "left" ? (heard ? currentVolume : 100) : 0,
-			rightEar: currentPhase.currentEar === "right" ? (heard ? currentVolume : 100) : 0,
-			threshold: heard ? currentVolume : 100,
+			leftEar: currentPhase.currentEar === "left" ? (heard ? 1 : 0) : 0,
+			rightEar: currentPhase.currentEar === "right" ? (heard ? 1 : 0) : 0,
+			threshold: currentVolume, // optional, can store volume level heard
 		};
-
+	
 		setTestResults((prev) => [...prev, result]);
-
-		// Move to next frequency or ear
+	
+		// Move to next ear or frequency
 		if (currentPhase.currentEar === "left") {
-			// Test right ear for same frequency
-			setCurrentPhase((prev) =>
-				prev
-					? {
-							...prev,
-							currentEar: "right",
-					  }
-					: null
-			);
+			// Switch to right ear for same frequency
+			setCurrentPhase((prev) => prev ? { ...prev, currentEar: "right" } : null);
 		} else {
 			// Move to next frequency
 			const currentFreqIndex = currentPhase.frequencies.indexOf(currentPhase.currentFrequency);
 			if (currentFreqIndex < currentPhase.frequencies.length - 1) {
-				// Next frequency, start with left ear
 				setCurrentPhase((prev) =>
 					prev
 						? {
@@ -183,7 +177,7 @@ export default function HearingTestPage() {
 						: null
 				);
 			} else {
-				// Phase complete, move to next phase
+				// Phase complete
 				const currentPhaseIndex = testPhases.findIndex((p) => p.name === currentPhase.name);
 				if (currentPhaseIndex < testPhases.length - 1) {
 					setCurrentPhase({ ...testPhases[currentPhaseIndex + 1] });
@@ -194,74 +188,64 @@ export default function HearingTestPage() {
 				}
 			}
 		}
-
+	
 		// Update progress
 		const totalTests = testPhases.reduce((sum, phase) => sum + phase.frequencies.length * 2, 0);
 		const completedTests = testResults.length + 1;
 		setTestProgress((completedTests / totalTests) * 100);
 	};
-
+	
+	
+	
 	const submitResults = async () => {
 		if (!user || testResults.length === 0) return;
-
-		// Validate user ID
+	
 		if (!user.id) {
 			setMessage({ type: "error", text: "User ID not found. Please log in again." });
 			return;
 		}
-
+	
 		setIsSubmitting(true);
 		setMessage(null);
-
+	
 		try {
-			// Calculate overall scores
-			const leftEarScores = testResults.filter((r) => r.leftEar > 0).map((r) => r.leftEar);
-			const rightEarScores = testResults.filter((r) => r.rightEar > 0).map((r) => r.rightEar);
-
-			const leftEarAverage =
-				leftEarScores.length > 0 ? leftEarScores.reduce((sum, score) => sum + score, 0) / leftEarScores.length : 0;
-			const rightEarAverage =
-				rightEarScores.length > 0 ? rightEarScores.reduce((sum, score) => sum + score, 0) / rightEarScores.length : 0;
-
-			const overallScore = Math.round((leftEarAverage + rightEarAverage) / 2);
-
+			const leftEarHeard = testResults.reduce((sum, r) => sum + r.leftEar, 0);
+			console.log("leftEar heard: "+leftEarHeard);
+			const leftEarTotal = 9;  //9 freqs in total
+			const leftEarScore = leftEarTotal > 0 ? Math.round((leftEarHeard / leftEarTotal) * 100) : 0;
+	
+			const rightEarHeard = testResults.reduce((sum, r) => sum + r.rightEar, 0);
+			const rightEarTotal = 9;
+			const rightEarScore = rightEarTotal > 0 ? Math.round((rightEarHeard / rightEarTotal) * 100) : 0;
+	
+			const overallScore = Math.round((leftEarScore + rightEarScore) / 2);
+	
 			const testData = {
 				user_id: user.id,
 				test_date: new Date().toISOString(),
-				left_ear_score: Math.round(leftEarAverage),
-				right_ear_score: Math.round(rightEarAverage),
+				left_ear_score: leftEarScore,
+				right_ear_score: rightEarScore,
 				overall_score: overallScore,
 				test_type: "comprehensive",
 				notes: "AI-guided hearing assessment",
 				detailed_results: testResults,
 			};
-
-			// Debug logging
-			console.log("Sending test data:", testData);
-			console.log("User ID:", user.id);
-			console.log("User object:", user);
-			console.log("API URL:", process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
-
+	
 			const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 			const response = await fetch(`${apiUrl}/api/hearing/test`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(testData),
 			});
-
+	
 			if (response.ok) {
 				setMessage({ type: "success", text: "Hearing test results saved successfully!" });
-				setTimeout(() => {
-					router.push("/reports");
-				}, 2000);
+				setTimeout(() => router.push("/reports"), 2000);
 			} else {
 				const errorData = await response.json();
-				console.error("Error response:", errorData);
-				// Handle different error response formats
 				let errorMessage = "Failed to save results";
 				if (errorData.detail) {
 					if (Array.isArray(errorData.detail)) {
-						// Handle validation errors array
 						errorMessage = errorData.detail.map((err: any) => err.msg || "Validation error").join(", ");
 					} else if (typeof errorData.detail === "string") {
 						errorMessage = errorData.detail;
@@ -278,7 +262,9 @@ export default function HearingTestPage() {
 			setIsSubmitting(false);
 		}
 	};
-
+	
+	
+	
 	const stopTest = () => {
 		setIsTestActive(false);
 		setCurrentPhase(null);
@@ -539,39 +525,42 @@ export default function HearingTestPage() {
 
 							{/* Results Summary */}
 							<div className="grid md:grid-cols-3 gap-6 max-w-2xl mx-auto">
-								<div className="bg-blue-50 p-4 rounded-lg text-center">
-									<p className="text-sm text-gray-600">Left Ear</p>
-									<p className="text-2xl font-bold text-blue-600">
-										{Math.round(
-											testResults.filter((r) => r.leftEar > 0).reduce((sum, r) => sum + r.leftEar, 0) /
-												testResults.filter((r) => r.leftEar > 0).length || 0
-										)}
-										%
-									</p>
-								</div>
-								<div className="bg-green-50 p-4 rounded-lg text-center">
-									<p className="text-sm text-gray-600">Right Ear</p>
-									<p className="text-2xl font-bold text-green-600">
-										{Math.round(
-											testResults.filter((r) => r.rightEar > 0).reduce((sum, r) => sum + r.rightEar, 0) /
-												testResults.filter((r) => r.rightEar > 0).length || 0
-										)}
-										%
-									</p>
-								</div>
-								<div className="bg-purple-50 p-4 rounded-lg text-center">
-									<p className="text-sm text-gray-600">Overall</p>
-									<p className="text-2xl font-bold text-purple-600">
-										{Math.round(
-											(testResults.filter((r) => r.leftEar > 0).reduce((sum, r) => sum + r.leftEar, 0) /
-												testResults.filter((r) => r.leftEar > 0).length || 0) +
-												(testResults.filter((r) => r.rightEar > 0).reduce((sum, r) => sum + r.rightEar, 0) /
-													testResults.filter((r) => r.rightEar > 0).length || 0)
-										) / 2}
-										%
-									</p>
-								</div>
+							{/* Left Ear */}
+							<p className="text-2xl font-bold text-blue-600">
+							{(() => {
+								const heard = testResults.reduce((sum, r) => sum + r.leftEar, 0);
+								const total = 9;
+								return total > 0 ? Math.round((heard / total) * 100) : 0;
+							})()}%
+							</p>
+
+							{/* Right Ear */}
+							<p className="text-2xl font-bold text-green-600">
+							{(() => {
+								const heard = testResults.reduce((sum, r) => sum + r.rightEar, 0);
+								const total = 9;
+								return total > 0 ? Math.round((heard / total) * 100) : 0;
+							})()}%
+							</p>
+
+							{/* Overall */}
+							<p className="text-2xl font-bold text-purple-600">
+							{(() => {
+								const leftHeard = testResults.reduce((sum, r) => sum + r.leftEar, 0);
+								const leftTotal = 9;
+								const leftScore = leftTotal > 0 ? (leftHeard / leftTotal) * 100 : 0;
+
+								const rightHeard = testResults.reduce((sum, r) => sum + r.rightEar, 0);
+								const rightTotal = 9;
+								const rightScore = rightTotal > 0 ? (rightHeard / rightTotal) * 100 : 0;
+
+								return Math.round((leftScore + rightScore) / 2);
+							})()}%
+							</p>
+
+
 							</div>
+
 
 							{/* Action Buttons */}
 							<div className="flex flex-col sm:flex-row gap-4 justify-center">

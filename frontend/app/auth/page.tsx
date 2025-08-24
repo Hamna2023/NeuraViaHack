@@ -19,13 +19,15 @@ export default function AuthPage() {
 		gender: "",
 	});
 
+
 	const { user, signIn, signUp } = useAuth();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
 	// Check URL params for mode
 	useEffect(() => {
-		const mode = searchParams.get("mode");
+		const mode = searchParams?.get("mode") ?? null;
+
 		if (mode === "register") {
 			setIsLogin(false);
 		}
