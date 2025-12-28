@@ -1,4 +1,4 @@
-# NeuraVia - AI-Powered Neurological Health Assessment Platform
+# NeuraVia - AI-Powered Hearing Health Assessment Platform
 
 A comprehensive healthcare platform that provides AI-driven neurological assessments, symptom tracking, hearing evaluations, and personalized medical reports.
 
