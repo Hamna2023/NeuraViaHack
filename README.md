@@ -1,6 +1,6 @@
 # NeuraVia - AI-Powered Hearing Health Assessment Platform
 
-A comprehensive healthcare platform that provides AI-driven neurological assessments, symptom tracking, hearing evaluations, and personalized medical reports.
+A comprehensive healthcare platform that provides AI-driven hearing assessments, symptom tracking, hearing evaluations, and personalized medical reports.
 
 ## 🚀 New Features (Latest Update)
 
